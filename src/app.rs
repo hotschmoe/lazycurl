@@ -27,6 +27,8 @@ pub struct App {
 pub enum AppState {
     /// Normal mode - building and executing commands
     Normal,
+    /// Editing a field
+    Editing(EditField),
     /// Editing a template name
     EditingTemplateName,
     /// Editing environment variables
@@ -37,10 +39,33 @@ pub enum AppState {
     Exiting,
 }
 
+/// Editable fields
+#[derive(Clone)]
+pub enum EditField {
+    /// URL field
+    Url,
+    /// Method field
+    Method,
+    /// Header key
+    HeaderKey(usize),
+    /// Header value
+    HeaderValue(usize),
+    /// Query parameter key
+    QueryParamKey(usize),
+    /// Query parameter value
+    QueryParamValue(usize),
+    /// Body content
+    Body,
+    /// Option value
+    OptionValue(usize),
+}
+
 /// UI state
 pub struct UiState {
     /// Currently active tab
     pub active_tab: Tab,
+    /// Currently selected field in the active tab
+    pub selected_field: SelectedField,
     /// Currently selected template index
     pub selected_template: Option<usize>,
     /// Whether the templates panel is expanded
@@ -51,6 +76,38 @@ pub struct UiState {
     pub history_expanded: bool,
     /// Currently selected option category
     pub selected_option_category: OptionCategory,
+    /// Current edit buffer for editing fields
+    pub edit_buffer: String,
+}
+
+/// Selected field in each tab
+pub enum SelectedField {
+    /// URL tab fields
+    Url(UrlField),
+    /// Headers tab fields
+    Headers(usize),
+    /// Body tab fields
+    Body(BodyField),
+    /// Options tab fields
+    Options(usize),
+}
+
+/// URL tab fields
+pub enum UrlField {
+    /// URL input
+    Url,
+    /// Method selection
+    Method,
+    /// Query parameters
+    QueryParam(usize),
+}
+
+/// Body tab fields
+pub enum BodyField {
+    /// Body type selection
+    Type,
+    /// Body content
+    Content,
 }
 
 /// UI tabs
@@ -97,11 +154,13 @@ impl Default for App {
             history: Vec::new(),
             ui_state: UiState {
                 active_tab: Tab::Url,
+                selected_field: SelectedField::Url(UrlField::Url),
                 selected_template: None,
                 templates_expanded: true,
                 environments_expanded: true,
                 history_expanded: false,
                 selected_option_category: OptionCategory::Basic,
+                edit_buffer: String::new(),
             },
         }
     }
@@ -141,6 +200,10 @@ impl App {
     fn handle_key_event(&mut self, key_event: &crossterm::event::KeyEvent) -> bool {
         match self.state {
             AppState::Normal => self.handle_normal_mode_key(key_event),
+            AppState::Editing(ref field) => {
+                let field_clone = field.clone();
+                self.handle_editing_field_key(key_event, &field_clone)
+            },
             AppState::EditingTemplateName => self.handle_editing_template_name_key(key_event),
             AppState::EditingEnvironment => self.handle_editing_environment_key(key_event),
             AppState::Help => self.handle_help_key(key_event),
@@ -159,45 +222,60 @@ impl App {
                 true
             }
             // Switch tabs with Tab or Right arrow
-            (KeyCode::Tab, KeyModifiers::NONE) | (KeyCode::Right, KeyModifiers::NONE) => {
+            (KeyCode::Tab, KeyModifiers::NONE) | (KeyCode::Right, KeyModifiers::CONTROL) => {
                 self.ui_state.active_tab = match self.ui_state.active_tab {
                     Tab::Url => Tab::Headers,
                     Tab::Headers => Tab::Body,
                     Tab::Body => Tab::Options,
                     Tab::Options => Tab::Url,
                 };
+                // Reset selected field for the new tab
+                self.ui_state.selected_field = match self.ui_state.active_tab {
+                    Tab::Url => SelectedField::Url(UrlField::Url),
+                    Tab::Headers => SelectedField::Headers(0),
+                    Tab::Body => SelectedField::Body(BodyField::Content),
+                    Tab::Options => SelectedField::Options(0),
+                };
                 false
             }
             // Switch tabs with Shift+Tab or Left arrow
-            (KeyCode::BackTab, _) | (KeyCode::Left, KeyModifiers::NONE) => {
+            (KeyCode::BackTab, _) | (KeyCode::Left, KeyModifiers::CONTROL) => {
                 self.ui_state.active_tab = match self.ui_state.active_tab {
                     Tab::Url => Tab::Options,
                     Tab::Headers => Tab::Url,
                     Tab::Body => Tab::Headers,
                     Tab::Options => Tab::Body,
                 };
+                // Reset selected field for the new tab
+                self.ui_state.selected_field = match self.ui_state.active_tab {
+                    Tab::Url => SelectedField::Url(UrlField::Url),
+                    Tab::Headers => SelectedField::Headers(0),
+                    Tab::Body => SelectedField::Body(BodyField::Content),
+                    Tab::Options => SelectedField::Options(0),
+                };
                 false
             }
-            // Navigate templates with Up arrow
+            // Navigate fields with Up/Down arrows
             (KeyCode::Up, KeyModifiers::NONE) => {
-                if let Some(selected) = self.ui_state.selected_template {
-                    if selected > 0 {
-                        self.ui_state.selected_template = Some(selected - 1);
-                    }
-                } else if !self.templates.is_empty() {
-                    self.ui_state.selected_template = Some(0);
-                }
+                self.navigate_field_up();
                 false
             }
-            // Navigate templates with Down arrow
             (KeyCode::Down, KeyModifiers::NONE) => {
-                if let Some(selected) = self.ui_state.selected_template {
-                    if selected < self.templates.len().saturating_sub(1) {
-                        self.ui_state.selected_template = Some(selected + 1);
-                    }
-                } else if !self.templates.is_empty() {
-                    self.ui_state.selected_template = Some(0);
-                }
+                self.navigate_field_down();
+                false
+            }
+            // Navigate fields with Left/Right arrows
+            (KeyCode::Left, KeyModifiers::NONE) => {
+                self.navigate_field_left();
+                false
+            }
+            (KeyCode::Right, KeyModifiers::NONE) => {
+                self.navigate_field_right();
+                false
+            }
+            // Edit current field
+            (KeyCode::Enter, KeyModifiers::NONE) => {
+                self.start_editing_field();
                 false
             }
             // Toggle panels
@@ -219,6 +297,282 @@ impl App {
                 false
             }
             // Default - event not handled
+            _ => false,
+        }
+    }
+
+    /// Navigate to the field above the current one
+    fn navigate_field_up(&mut self) {
+        match &self.ui_state.selected_field {
+            SelectedField::Url(field) => {
+                match field {
+                    UrlField::Url => {
+                        // Already at the top, do nothing
+                    }
+                    UrlField::Method => {
+                        self.ui_state.selected_field = SelectedField::Url(UrlField::Url);
+                    }
+                    UrlField::QueryParam(idx) => {
+                        if *idx > 0 {
+                            self.ui_state.selected_field = SelectedField::Url(UrlField::QueryParam(idx - 1));
+                        } else {
+                            self.ui_state.selected_field = SelectedField::Url(UrlField::Method);
+                        }
+                    }
+                }
+            }
+            SelectedField::Headers(idx) => {
+                if *idx > 0 {
+                    self.ui_state.selected_field = SelectedField::Headers(idx - 1);
+                }
+            }
+            SelectedField::Body(field) => {
+                match field {
+                    BodyField::Type => {
+                        // Already at the top, do nothing
+                    }
+                    BodyField::Content => {
+                        self.ui_state.selected_field = SelectedField::Body(BodyField::Type);
+                    }
+                }
+            }
+            SelectedField::Options(idx) => {
+                if *idx > 0 {
+                    self.ui_state.selected_field = SelectedField::Options(idx - 1);
+                }
+            }
+        }
+    }
+
+    /// Navigate to the field below the current one
+    fn navigate_field_down(&mut self) {
+        match &self.ui_state.selected_field {
+            SelectedField::Url(field) => {
+                match field {
+                    UrlField::Url => {
+                        self.ui_state.selected_field = SelectedField::Url(UrlField::Method);
+                    }
+                    UrlField::Method => {
+                        if !self.current_command.query_params.is_empty() {
+                            self.ui_state.selected_field = SelectedField::Url(UrlField::QueryParam(0));
+                        }
+                    }
+                    UrlField::QueryParam(idx) => {
+                        if *idx < self.current_command.query_params.len() - 1 {
+                            self.ui_state.selected_field = SelectedField::Url(UrlField::QueryParam(idx + 1));
+                        }
+                    }
+                }
+            }
+            SelectedField::Headers(idx) => {
+                if *idx < self.current_command.headers.len() - 1 {
+                    self.ui_state.selected_field = SelectedField::Headers(idx + 1);
+                }
+            }
+            SelectedField::Body(field) => {
+                match field {
+                    BodyField::Type => {
+                        self.ui_state.selected_field = SelectedField::Body(BodyField::Content);
+                    }
+                    BodyField::Content => {
+                        // Already at the bottom, do nothing
+                    }
+                }
+            }
+            SelectedField::Options(idx) => {
+                if *idx < self.current_command.options.len() - 1 {
+                    self.ui_state.selected_field = SelectedField::Options(idx + 1);
+                }
+            }
+        }
+    }
+
+    /// Navigate to the field to the left of the current one
+    fn navigate_field_left(&mut self) {
+        // This is used for navigating between key-value pairs
+        match &self.ui_state.selected_field {
+            SelectedField::Headers(idx) => {
+                // Toggle between key and value
+                if let Some(_header) = self.current_command.headers.get(*idx) {
+                    // Toggle header enabled state
+                    if let Some(header) = self.current_command.headers.get_mut(*idx) {
+                        header.enabled = !header.enabled;
+                    }
+                }
+            }
+            SelectedField::Url(UrlField::QueryParam(idx)) => {
+                // Toggle query param enabled state
+                if let Some(param) = self.current_command.query_params.get_mut(*idx) {
+                    param.enabled = !param.enabled;
+                }
+            }
+            SelectedField::Options(idx) => {
+                // Toggle option enabled state
+                if let Some(option) = self.current_command.options.get_mut(*idx) {
+                    option.enabled = !option.enabled;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Navigate to the field to the right of the current one
+    fn navigate_field_right(&mut self) {
+        // This is used for navigating between key-value pairs
+        // For now, we'll just use it as an alias for Enter to edit the field
+        self.start_editing_field();
+    }
+
+    /// Start editing the current field
+    fn start_editing_field(&mut self) -> bool {
+        let edit_field = match &self.ui_state.selected_field {
+            SelectedField::Url(field) => {
+                match field {
+                    UrlField::Url => {
+                        self.ui_state.edit_buffer = self.current_command.url.clone();
+                        EditField::Url
+                    }
+                    UrlField::Method => {
+                        self.ui_state.edit_buffer = self.current_command.method
+                            .as_ref()
+                            .map(|m| m.to_string())
+                            .unwrap_or_else(|| "GET".to_string());
+                        EditField::Method
+                    }
+                    UrlField::QueryParam(idx) => {
+                        if let Some(param) = self.current_command.query_params.get(*idx) {
+                            self.ui_state.edit_buffer = param.value.clone();
+                            EditField::QueryParamValue(*idx)
+                        } else {
+                            return false;
+                        }
+                    }
+                }
+            }
+            SelectedField::Headers(idx) => {
+                if let Some(header) = self.current_command.headers.get(*idx) {
+                    self.ui_state.edit_buffer = header.value.clone();
+                    EditField::HeaderValue(*idx)
+                } else {
+                    return false;
+                }
+            }
+            SelectedField::Body(field) => {
+                match field {
+                    BodyField::Type => {
+                        // Not editable directly
+                        return false;
+                    }
+                    BodyField::Content => {
+                        if let Some(body) = &self.current_command.body {
+                            match body {
+                                crate::models::command::RequestBody::Raw(content) => {
+                                    self.ui_state.edit_buffer = content.clone();
+                                }
+                                _ => {
+                                    self.ui_state.edit_buffer = String::new();
+                                }
+                            }
+                        } else {
+                            self.ui_state.edit_buffer = String::new();
+                        }
+                        EditField::Body
+                    }
+                }
+            }
+            SelectedField::Options(idx) => {
+                if let Some(option) = self.current_command.options.get(*idx) {
+                    if let Some(value) = &option.value {
+                        self.ui_state.edit_buffer = value.clone();
+                        EditField::OptionValue(*idx)
+                    } else {
+                        return false;
+                    }
+                } else {
+                    return false;
+                }
+            }
+        };
+
+        self.state = AppState::Editing(edit_field);
+        false
+    }
+
+    /// Handle key events in editing field mode
+    fn handle_editing_field_key(&mut self, key_event: &crossterm::event::KeyEvent, field: &EditField) -> bool {
+        use crossterm::event::KeyCode;
+
+        match key_event.code {
+            KeyCode::Enter => {
+                // Save the edited value
+                match field {
+                    EditField::Url => {
+                        self.current_command.url = self.ui_state.edit_buffer.clone();
+                    }
+                    EditField::Method => {
+                        // Parse method from string
+                        let method_str = self.ui_state.edit_buffer.to_uppercase();
+                        let method = match method_str.as_str() {
+                            "GET" => crate::models::command::HttpMethod::GET,
+                            "POST" => crate::models::command::HttpMethod::POST,
+                            "PUT" => crate::models::command::HttpMethod::PUT,
+                            "DELETE" => crate::models::command::HttpMethod::DELETE,
+                            "PATCH" => crate::models::command::HttpMethod::PATCH,
+                            "HEAD" => crate::models::command::HttpMethod::HEAD,
+                            "OPTIONS" => crate::models::command::HttpMethod::OPTIONS,
+                            _ => crate::models::command::HttpMethod::GET,
+                        };
+                        self.current_command.method = Some(method);
+                    }
+                    EditField::HeaderKey(idx) => {
+                        if let Some(header) = self.current_command.headers.get_mut(*idx) {
+                            header.key = self.ui_state.edit_buffer.clone();
+                        }
+                    }
+                    EditField::HeaderValue(idx) => {
+                        if let Some(header) = self.current_command.headers.get_mut(*idx) {
+                            header.value = self.ui_state.edit_buffer.clone();
+                        }
+                    }
+                    EditField::QueryParamKey(idx) => {
+                        if let Some(param) = self.current_command.query_params.get_mut(*idx) {
+                            param.key = self.ui_state.edit_buffer.clone();
+                        }
+                    }
+                    EditField::QueryParamValue(idx) => {
+                        if let Some(param) = self.current_command.query_params.get_mut(*idx) {
+                            param.value = self.ui_state.edit_buffer.clone();
+                        }
+                    }
+                    EditField::Body => {
+                        // Set body content
+                        let content = self.ui_state.edit_buffer.clone();
+                        self.current_command.body = Some(crate::models::command::RequestBody::Raw(content));
+                    }
+                    EditField::OptionValue(idx) => {
+                        if let Some(option) = self.current_command.options.get_mut(*idx) {
+                            option.value = Some(self.ui_state.edit_buffer.clone());
+                        }
+                    }
+                }
+                self.state = AppState::Normal;
+                false
+            }
+            KeyCode::Esc => {
+                // Cancel editing
+                self.state = AppState::Normal;
+                false
+            }
+            KeyCode::Char(c) => {
+                // Add character to edit buffer
+                self.ui_state.edit_buffer.push(c);
+                false
+            }
+            KeyCode::Backspace => {
+                // Remove last character from edit buffer
+                self.ui_state.edit_buffer.pop();
+                false
+            }
             _ => false,
         }
     }

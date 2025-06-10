@@ -120,6 +120,11 @@ impl Theme {
         Style::default().fg(self.secondary)
     }
 
+    /// Get active border style
+    pub fn active_border_style(&self) -> Style {
+        Style::default().fg(self.primary)
+    }
+
     /// Get help style
     pub fn help_style(&self) -> Style {
         Style::default()

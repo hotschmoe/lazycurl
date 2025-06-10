@@ -1,4 +1,4 @@
-use crate::app::{App, Tab};
+use crate::app::{App, Tab, AppState, EditField, SelectedField, UrlField, BodyField};
 use crate::models::command::{CurlCommand, HttpMethod};
 use crate::ui::theme::Theme;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
@@ -53,6 +53,27 @@ impl<'a> CommandBuilder<'a> {
         let method = self.app.current_command.method.as_ref().unwrap_or(&HttpMethod::GET);
         let url = &self.app.current_command.url;
 
+        // Check if we're editing the URL
+        let url_text = match &self.app.state {
+            AppState::Editing(EditField::Url) => &self.app.ui_state.edit_buffer,
+            _ => url,
+        };
+
+        // Determine if URL is selected
+        let is_url_selected = matches!(
+            self.app.ui_state.selected_field,
+            SelectedField::Url(UrlField::Url)
+        );
+
+        // Style for URL based on selection
+        let url_style = if is_url_selected {
+            Style::default()
+                .fg(self.theme.accent)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default()
+        };
+
         let text = Text::from(vec![
             Line::from(vec![
                 Span::styled(
@@ -61,14 +82,18 @@ impl<'a> CommandBuilder<'a> {
                         .fg(self.theme.primary)
                         .add_modifier(Modifier::BOLD),
                 ),
-                Span::raw(url),
+                Span::styled(url_text, url_style),
             ]),
         ]);
 
         let block = Block::default()
             .title("URL")
             .borders(Borders::ALL)
-            .style(self.theme.border_style());
+            .style(if is_url_selected {
+                self.theme.active_border_style()
+            } else {
+                self.theme.border_style()
+            });
 
         let paragraph = Paragraph::new(text).block(block);
         frame.render_widget(paragraph, area);
@@ -110,17 +135,40 @@ impl<'a> CommandBuilder<'a> {
         let methods = vec!["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"];
         let current_method = self.app.current_command.method.as_ref().unwrap_or(&HttpMethod::GET).to_string();
         
+        // Check if we're editing the method
+        let method_text = match &self.app.state {
+            AppState::Editing(EditField::Method) => &self.app.ui_state.edit_buffer,
+            _ => &current_method,
+        };
+
+        // Determine if method is selected
+        let is_method_selected = matches!(
+            self.app.ui_state.selected_field,
+            SelectedField::Url(UrlField::Method)
+        );
+
+        // Style for method based on selection
+        let method_style = if is_method_selected {
+            self.theme.highlight_style()
+        } else {
+            self.theme.selected_style()
+        };
+
         let method_text = Text::from(vec![
             Line::from(vec![
                 Span::raw("HTTP Method: "),
-                Span::styled(current_method, self.theme.selected_style()),
+                Span::styled(method_text, method_style),
             ]),
         ]);
 
         let method_block = Block::default()
             .title("Method")
             .borders(Borders::ALL)
-            .style(self.theme.border_style());
+            .style(if is_method_selected {
+                self.theme.active_border_style()
+            } else {
+                self.theme.border_style()
+            });
 
         let method_paragraph = Paragraph::new(method_text).block(method_block);
         frame.render_widget(method_paragraph, chunks[0]);
@@ -135,14 +183,35 @@ impl<'a> CommandBuilder<'a> {
             Text::from(vec![Line::from(Span::raw("No query parameters"))])
         } else {
             let mut lines = Vec::new();
-            for param in &self.app.current_command.query_params {
+            for (idx, param) in self.app.current_command.query_params.iter().enumerate() {
                 let enabled = if param.enabled { "✓" } else { "✗" };
+                
+                // Determine if this query param is selected
+                let is_selected = matches!(
+                    self.app.ui_state.selected_field,
+                    SelectedField::Url(UrlField::QueryParam(selected_idx)) if selected_idx == idx
+                );
+
+                // Check if we're editing this query param
+                let value_text = match &self.app.state {
+                    AppState::Editing(EditField::QueryParamValue(edit_idx)) if *edit_idx == idx =>
+                        &self.app.ui_state.edit_buffer,
+                    _ => &param.value,
+                };
+
+                // Style based on selection
+                let style = if is_selected {
+                    self.theme.highlight_style()
+                } else {
+                    self.theme.text_style()
+                };
+
                 lines.push(Line::from(vec![
-                    Span::styled(enabled, self.theme.text_style()),
+                    Span::styled(enabled, style),
                     Span::raw(" "),
-                    Span::styled(&param.key, self.theme.text_style()),
+                    Span::styled(&param.key, style),
                     Span::raw(": "),
-                    Span::styled(&param.value, self.theme.text_style()),
+                    Span::styled(value_text, style),
                 ]));
             }
             Text::from(lines)
@@ -163,14 +232,35 @@ impl<'a> CommandBuilder<'a> {
             Text::from(vec![Line::from(Span::raw("No headers"))])
         } else {
             let mut lines = Vec::new();
-            for header in &self.app.current_command.headers {
+            for (idx, header) in self.app.current_command.headers.iter().enumerate() {
                 let enabled = if header.enabled { "✓" } else { "✗" };
+                
+                // Determine if this header is selected
+                let is_selected = matches!(
+                    self.app.ui_state.selected_field,
+                    SelectedField::Headers(selected_idx) if selected_idx == idx
+                );
+
+                // Check if we're editing this header
+                let value_text = match &self.app.state {
+                    AppState::Editing(EditField::HeaderValue(edit_idx)) if *edit_idx == idx =>
+                        &self.app.ui_state.edit_buffer,
+                    _ => &header.value,
+                };
+
+                // Style based on selection
+                let style = if is_selected {
+                    self.theme.highlight_style()
+                } else {
+                    self.theme.text_style()
+                };
+
                 lines.push(Line::from(vec![
-                    Span::styled(enabled, self.theme.text_style()),
+                    Span::styled(enabled, style),
                     Span::raw(" "),
-                    Span::styled(&header.key, self.theme.text_style()),
+                    Span::styled(&header.key, style),
                     Span::raw(": "),
-                    Span::styled(&header.value, self.theme.text_style()),
+                    Span::styled(value_text, style),
                 ]));
             }
             Text::from(lines)
@@ -182,38 +272,84 @@ impl<'a> CommandBuilder<'a> {
 
     /// Render body tab
     fn render_body_tab(&self, frame: &mut Frame, area: Rect) {
+        // Determine if body content is selected
+        let is_content_selected = matches!(
+            self.app.ui_state.selected_field,
+            SelectedField::Body(BodyField::Content)
+        );
+
         let block = Block::default()
             .title("Request Body")
             .borders(Borders::ALL)
-            .style(self.theme.border_style());
+            .style(if is_content_selected {
+                self.theme.active_border_style()
+            } else {
+                self.theme.border_style()
+            });
 
-        let text = match &self.app.current_command.body {
-            Some(body) => match body {
-                crate::models::command::RequestBody::Raw(content) => {
-                    Text::from(content.clone())
-                }
-                crate::models::command::RequestBody::FormData(items) => {
-                    let mut lines = Vec::new();
-                    for item in items {
-                        let enabled = if item.enabled { "✓" } else { "✗" };
-                        lines.push(Line::from(vec![
-                            Span::styled(enabled, self.theme.text_style()),
-                            Span::raw(" "),
-                            Span::styled(&item.key, self.theme.text_style()),
-                            Span::raw(": "),
-                            Span::styled(&item.value, self.theme.text_style()),
-                        ]));
-                    }
-                    Text::from(lines)
-                }
-                crate::models::command::RequestBody::Binary(path) => {
-                    Text::from(format!("Binary file: {}", path.display()))
-                }
-                crate::models::command::RequestBody::None => {
-                    Text::from("No request body")
-                }
+        // Check if we're editing the body
+        let text = match &self.app.state {
+            AppState::Editing(EditField::Body) => {
+                Text::from(self.app.ui_state.edit_buffer.clone())
             },
-            None => Text::from("No request body"),
+            _ => match &self.app.current_command.body {
+                Some(body) => match body {
+                    crate::models::command::RequestBody::Raw(content) => {
+                        let style = if is_content_selected {
+                            self.theme.highlight_style()
+                        } else {
+                            Style::default()
+                        };
+                        Text::from(vec![Line::from(Span::styled(content, style))])
+                    }
+                    crate::models::command::RequestBody::FormData(items) => {
+                        let mut lines = Vec::new();
+                        for item in items {
+                            let enabled = if item.enabled { "✓" } else { "✗" };
+                            let style = if is_content_selected {
+                                self.theme.highlight_style()
+                            } else {
+                                self.theme.text_style()
+                            };
+                            lines.push(Line::from(vec![
+                                Span::styled(enabled, style),
+                                Span::raw(" "),
+                                Span::styled(&item.key, style),
+                                Span::raw(": "),
+                                Span::styled(&item.value, style),
+                            ]));
+                        }
+                        Text::from(lines)
+                    }
+                    crate::models::command::RequestBody::Binary(path) => {
+                        let style = if is_content_selected {
+                            self.theme.highlight_style()
+                        } else {
+                            Style::default()
+                        };
+                        Text::from(vec![Line::from(Span::styled(
+                            format!("Binary file: {}", path.display()),
+                            style
+                        ))])
+                    }
+                    crate::models::command::RequestBody::None => {
+                        let style = if is_content_selected {
+                            self.theme.highlight_style()
+                        } else {
+                            Style::default()
+                        };
+                        Text::from(vec![Line::from(Span::styled("No request body", style))])
+                    }
+                },
+                None => {
+                    let style = if is_content_selected {
+                        self.theme.highlight_style()
+                    } else {
+                        Style::default()
+                    };
+                    Text::from(vec![Line::from(Span::styled("No request body", style))])
+                },
+            },
         };
 
         let paragraph = Paragraph::new(text).block(block);
@@ -231,17 +367,38 @@ impl<'a> CommandBuilder<'a> {
             Text::from(vec![Line::from(Span::raw("No options"))])
         } else {
             let mut lines = Vec::new();
-            for option in &self.app.current_command.options {
+            for (idx, option) in self.app.current_command.options.iter().enumerate() {
                 let enabled = if option.enabled { "✓" } else { "✗" };
-                let value = match &option.value {
-                    Some(val) => format!(": {}", val),
-                    None => String::new(),
+                
+                // Determine if this option is selected
+                let is_selected = matches!(
+                    self.app.ui_state.selected_field,
+                    SelectedField::Options(selected_idx) if selected_idx == idx
+                );
+
+                // Style based on selection
+                let style = if is_selected {
+                    self.theme.highlight_style()
+                } else {
+                    self.theme.text_style()
                 };
+
+                // Check if we're editing this option
+                let value_display = match &self.app.state {
+                    AppState::Editing(EditField::OptionValue(edit_idx)) if *edit_idx == idx => {
+                        format!(": {}", self.app.ui_state.edit_buffer)
+                    },
+                    _ => match &option.value {
+                        Some(val) => format!(": {}", val),
+                        None => String::new(),
+                    },
+                };
+
                 lines.push(Line::from(vec![
-                    Span::styled(enabled, self.theme.text_style()),
+                    Span::styled(enabled, style),
                     Span::raw(" "),
-                    Span::styled(&option.flag, self.theme.text_style()),
-                    Span::raw(value),
+                    Span::styled(&option.flag, style),
+                    Span::styled(value_display, style),
                 ]));
             }
             Text::from(lines)
