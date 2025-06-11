@@ -35,6 +35,8 @@ pub enum AppState {
     Normal,
     /// Editing a field
     Editing(EditField),
+    /// Method dropdown is open
+    MethodDropdown,
     /// Editing a template name
     EditingTemplateName,
     /// Editing environment variables
@@ -84,6 +86,8 @@ pub struct UiState {
     pub selected_option_category: OptionCategory,
     /// Current edit buffer for editing fields
     pub edit_buffer: String,
+    /// Selected method index in dropdown (when dropdown is open)
+    pub method_dropdown_index: usize,
 }
 
 /// Selected field in each tab
@@ -168,6 +172,7 @@ impl Default for App {
                 history_expanded: false,
                 selected_option_category: OptionCategory::Basic,
                 edit_buffer: String::new(),
+                method_dropdown_index: 0,
             },
             executor: None,
         }
@@ -216,6 +221,7 @@ impl App {
                 let field_clone = field.clone();
                 self.handle_editing_field_key(key_event, &field_clone)
             },
+            AppState::MethodDropdown => self.handle_method_dropdown_key(key_event),
             AppState::EditingTemplateName => self.handle_editing_template_name_key(key_event),
             AppState::EditingEnvironment => self.handle_editing_environment_key(key_event),
             AppState::Help => self.handle_help_key(key_event),
@@ -450,11 +456,9 @@ impl App {
                         EditField::Url
                     }
                     UrlField::Method => {
-                        self.ui_state.edit_buffer = self.current_command.method
-                            .as_ref()
-                            .map(|m| m.to_string())
-                            .unwrap_or_else(|| "GET".to_string());
-                        EditField::Method
+                        // Open method dropdown instead of editing
+                        self.open_method_dropdown();
+                        return false;
                     }
                     UrlField::QueryParam(idx) => {
                         if let Some(param) = self.current_command.query_params.get(*idx) {
@@ -765,6 +769,68 @@ impl App {
     pub fn load_template(&mut self, index: usize) {
         if let Some(template) = self.templates.get(index) {
             self.current_command = template.command.clone();
+        }
+    }
+
+    /// Open the method dropdown
+    fn open_method_dropdown(&mut self) {
+        // Set the current method index in the dropdown
+        let methods = ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"];
+        let current_method = self.current_command.method.as_ref().unwrap_or(&crate::models::command::HttpMethod::GET);
+        let current_method_str = current_method.to_string();
+        
+        self.ui_state.method_dropdown_index = methods
+            .iter()
+            .position(|&m| m == current_method_str)
+            .unwrap_or(0);
+        
+        self.state = AppState::MethodDropdown;
+    }
+
+    /// Handle key events in method dropdown mode
+    fn handle_method_dropdown_key(&mut self, key_event: &crossterm::event::KeyEvent) -> bool {
+        use crossterm::event::KeyCode;
+
+        let methods = ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"];
+
+        match key_event.code {
+            KeyCode::Up => {
+                if self.ui_state.method_dropdown_index > 0 {
+                    self.ui_state.method_dropdown_index -= 1;
+                    // Force a redraw by ensuring the state change is visible
+                }
+                false
+            }
+            KeyCode::Down => {
+                if self.ui_state.method_dropdown_index < methods.len() - 1 {
+                    self.ui_state.method_dropdown_index += 1;
+                    // Force a redraw by ensuring the state change is visible
+                }
+                false
+            }
+            KeyCode::Enter => {
+                // Select the current method
+                let selected_method = methods[self.ui_state.method_dropdown_index];
+                let method = match selected_method {
+                    "GET" => crate::models::command::HttpMethod::GET,
+                    "POST" => crate::models::command::HttpMethod::POST,
+                    "PUT" => crate::models::command::HttpMethod::PUT,
+                    "DELETE" => crate::models::command::HttpMethod::DELETE,
+                    "PATCH" => crate::models::command::HttpMethod::PATCH,
+                    "HEAD" => crate::models::command::HttpMethod::HEAD,
+                    "OPTIONS" => crate::models::command::HttpMethod::OPTIONS,
+                    _ => crate::models::command::HttpMethod::GET,
+                };
+                self.current_command.method = Some(method);
+                self.state = AppState::Normal;
+                false
+            }
+            KeyCode::Esc => {
+                // Cancel dropdown
+                self.state = AppState::Normal;
+                false
+            }
+            _ => false,
         }
     }
 }

@@ -154,72 +154,14 @@ impl<'a> CommandBuilder<'a> {
             ])
             .split(area);
 
-        // Render method selection
-        let methods = vec!["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"];
-        let current_method = self.app.current_command.method.as_ref().unwrap_or(&HttpMethod::GET).to_string();
+        // Check if method dropdown is open
+        let is_dropdown_open = matches!(&self.app.state, AppState::MethodDropdown);
         
-        // Check if we're editing the method
-        let is_editing_method = matches!(&self.app.state, AppState::Editing(EditField::Method));
-        let method_text = if is_editing_method {
-            &self.app.ui_state.edit_buffer
+        if is_dropdown_open {
+            self.render_method_dropdown(frame, chunks[0]);
         } else {
-            &current_method
-        };
-
-        // Determine if method is selected
-        let is_method_selected = matches!(
-            self.app.ui_state.selected_field,
-            SelectedField::Url(UrlField::Method)
-        );
-
-        // Style for method based on selection and editing state
-        let method_style = if is_editing_method {
-            self.theme.editing_style()
-        } else if is_method_selected {
-            self.theme.selected_style()
-        } else {
-            self.theme.text_style()
-        };
-
-        // Add visual indicator for editing mode
-        let method_display = if is_editing_method {
-            format!("{} █", method_text) // Add cursor indicator
-        } else {
-            method_text.to_string()
-        };
-
-        let method_text = Text::from(vec![
-            Line::from(vec![
-                Span::raw("HTTP Method: "),
-                Span::styled(method_display, method_style),
-            ]),
-        ]);
-
-        // Choose border style based on state
-        let border_style = if is_editing_method {
-            self.theme.editing_border_style()
-        } else if is_method_selected {
-            self.theme.active_border_style()
-        } else {
-            self.theme.border_style()
-        };
-
-        // Add title indicator for editing mode
-        let title = if is_editing_method {
-            "Method [EDITING]"
-        } else if is_method_selected {
-            "Method [SELECTED]"
-        } else {
-            "Method"
-        };
-
-        let method_block = Block::default()
-            .title(title)
-            .borders(Borders::ALL)
-            .style(border_style);
-
-        let method_paragraph = Paragraph::new(method_text).block(method_block);
-        frame.render_widget(method_paragraph, chunks[0]);
+            self.render_method_selection(frame, chunks[0]);
+        }
 
         // Render query parameters
         let query_block = Block::default()
@@ -526,5 +468,136 @@ impl<'a> CommandBuilder<'a> {
 
         let paragraph = Paragraph::new(text).block(block);
         frame.render_widget(paragraph, area);
+    }
+
+    /// Render method selection (when dropdown is closed)
+    fn render_method_selection(&self, frame: &mut Frame, area: Rect) {
+        let current_method = self.app.current_command.method.as_ref().unwrap_or(&HttpMethod::GET).to_string();
+        
+        // Determine if method is selected
+        let is_method_selected = matches!(
+            self.app.ui_state.selected_field,
+            SelectedField::Url(UrlField::Method)
+        );
+
+        // Style for method based on selection state
+        let method_style = if is_method_selected {
+            self.theme.selected_style()
+        } else {
+            self.theme.text_style()
+        };
+
+        let method_text = Text::from(vec![
+            Line::from(vec![
+                Span::raw("HTTP Method: "),
+                Span::styled(&current_method, method_style),
+                Span::raw(" ▼"), // Dropdown indicator
+            ]),
+        ]);
+
+        // Choose border style based on state
+        let border_style = if is_method_selected {
+            self.theme.active_border_style()
+        } else {
+            self.theme.border_style()
+        };
+
+        // Add title indicator with debug info
+        let title = if is_method_selected {
+            "Method [SELECTED] - Press Enter to open dropdown"
+        } else {
+            "Method"
+        };
+
+        let method_block = Block::default()
+            .title(title)
+            .borders(Borders::ALL)
+            .style(border_style);
+
+        let method_paragraph = Paragraph::new(method_text).block(method_block);
+        frame.render_widget(method_paragraph, area);
+    }
+
+    /// Render method dropdown (when dropdown is open)
+    fn render_method_dropdown(&self, frame: &mut Frame, area: Rect) {
+        let methods = ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"];
+        let selected_index = self.app.ui_state.method_dropdown_index;
+
+        // Ensure selected_index is within bounds
+        let safe_selected_index = if selected_index < methods.len() {
+            selected_index
+        } else {
+            0
+        };
+
+        // Create dropdown content - build each line individually
+        let mut lines = Vec::new();
+        
+        // Add each method as a separate line
+        lines.push(Line::from(vec![
+            if safe_selected_index == 0 {
+                Span::styled("►►► GET ◄◄◄ [SELECTED]", self.theme.highlight_style())
+            } else {
+                Span::styled("    GET", self.theme.text_style())
+            }
+        ]));
+        
+        lines.push(Line::from(vec![
+            if safe_selected_index == 1 {
+                Span::styled("►►► POST ◄◄◄ [SELECTED]", self.theme.highlight_style())
+            } else {
+                Span::styled("    POST", self.theme.text_style())
+            }
+        ]));
+        
+        lines.push(Line::from(vec![
+            if safe_selected_index == 2 {
+                Span::styled("►►► PUT ◄◄◄ [SELECTED]", self.theme.highlight_style())
+            } else {
+                Span::styled("    PUT", self.theme.text_style())
+            }
+        ]));
+        
+        lines.push(Line::from(vec![
+            if safe_selected_index == 3 {
+                Span::styled("►►► DELETE ◄◄◄ [SELECTED]", self.theme.highlight_style())
+            } else {
+                Span::styled("    DELETE", self.theme.text_style())
+            }
+        ]));
+        
+        lines.push(Line::from(vec![
+            if safe_selected_index == 4 {
+                Span::styled("►►► PATCH ◄◄◄ [SELECTED]", self.theme.highlight_style())
+            } else {
+                Span::styled("    PATCH", self.theme.text_style())
+            }
+        ]));
+        
+        lines.push(Line::from(vec![
+            if safe_selected_index == 5 {
+                Span::styled("►►► HEAD ◄◄◄ [SELECTED]", self.theme.highlight_style())
+            } else {
+                Span::styled("    HEAD", self.theme.text_style())
+            }
+        ]));
+        
+        lines.push(Line::from(vec![
+            if safe_selected_index == 6 {
+                Span::styled("►►► OPTIONS ◄◄◄ [SELECTED]", self.theme.highlight_style())
+            } else {
+                Span::styled("    OPTIONS", self.theme.text_style())
+            }
+        ]));
+
+        let dropdown_text = Text::from(lines);
+
+        let dropdown_block = Block::default()
+            .title(format!("HTTP Method Dropdown - Index: {} Method: {}", safe_selected_index, methods[safe_selected_index]))
+            .borders(Borders::ALL)
+            .style(self.theme.editing_border_style());
+
+        let dropdown_paragraph = Paragraph::new(dropdown_text).block(dropdown_block);
+        frame.render_widget(dropdown_paragraph, area);
     }
 }
