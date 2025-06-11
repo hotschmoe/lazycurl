@@ -42,9 +42,12 @@ impl CommandBuilder {
         if let Some(body) = &command.body {
             match body {
                 RequestBody::Raw(content) => {
-                    let content_with_env = Self::substitute_env_vars(content, environment);
-                    args.push("-d".to_string());
-                    args.push(content_with_env);
+                    // Only add -d flag if content is not empty
+                    if !content.trim().is_empty() {
+                        let content_with_env = Self::substitute_env_vars(content, environment);
+                        args.push("-d".to_string());
+                        args.push(content_with_env);
+                    }
                 },
                 RequestBody::FormData(items) => {
                     for item in items {
