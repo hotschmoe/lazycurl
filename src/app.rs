@@ -795,16 +795,20 @@ impl App {
 
         match key_event.code {
             KeyCode::Up => {
+                // Circular navigation: wrap to bottom when at top
                 if self.ui_state.method_dropdown_index > 0 {
                     self.ui_state.method_dropdown_index -= 1;
-                    // Force a redraw by ensuring the state change is visible
+                } else {
+                    self.ui_state.method_dropdown_index = methods.len() - 1;
                 }
                 false
             }
             KeyCode::Down => {
+                // Circular navigation: wrap to top when at bottom
                 if self.ui_state.method_dropdown_index < methods.len() - 1 {
                     self.ui_state.method_dropdown_index += 1;
-                    // Force a redraw by ensuring the state change is visible
+                } else {
+                    self.ui_state.method_dropdown_index = 0;
                 }
                 false
             }

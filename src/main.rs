@@ -69,9 +69,9 @@ fn run_app<B: ratatui::backend::Backend>(
             let chunks = ratatui::layout::Layout::default()
                 .direction(ratatui::layout::Direction::Vertical)
                 .constraints([
-                    ratatui::layout::Constraint::Percentage(20), // Templates and command builder
+                    ratatui::layout::Constraint::Percentage(30), // Templates and command builder (balanced for dropdown)
                     ratatui::layout::Constraint::Percentage(10), // Command display
-                    ratatui::layout::Constraint::Percentage(70), // Output
+                    ratatui::layout::Constraint::Percentage(60), // Output (balanced allocation)
                 ])
                 .split(size);
             

@@ -154,13 +154,13 @@ impl<'a> CommandBuilder<'a> {
             .direction(Direction::Vertical)
             .constraints(if is_dropdown_open {
                 [
-                    Constraint::Length(10), // Method dropdown (needs more space for 7 methods + borders)
-                    Constraint::Min(0),     // Query parameters
+                    Constraint::Length(12), // Method dropdown (fixed height for dropdown)
+                    Constraint::Min(0),     // Query parameters (remaining space)
                 ]
             } else {
                 [
                     Constraint::Length(3),  // Method selection (normal size)
-                    Constraint::Min(0),     // Query parameters
+                    Constraint::Min(0),     // Query parameters (full space when dropdown is closed)
                 ]
             })
             .split(area);
@@ -531,77 +531,62 @@ impl<'a> CommandBuilder<'a> {
         let methods = ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"];
         let selected_index = self.app.ui_state.method_dropdown_index;
 
-        // Ensure selected_index is within bounds
-        let safe_selected_index = if selected_index < methods.len() {
-            selected_index
-        } else {
-            0
-        };
+        // Ensure selected_index is within bounds to prevent crashes
+        // but use modulo to preserve circular behavior
+        let safe_selected_index = selected_index % methods.len();
 
-        // Create dropdown content - build each line individually
+        // Calculate scrolling window - show 5 items at a time with proper circular behavior
+        let visible_items = 5;
+        let total_items = methods.len();
+        
+        // Calculate the start index for the visible window
+        // Center the selected item when possible
+        let start_index = if safe_selected_index < visible_items / 2 {
+            // Near the beginning - show from start
+            0
+        } else if safe_selected_index >= total_items - visible_items / 2 {
+            // Near the end - show the last visible_items
+            total_items.saturating_sub(visible_items)
+        } else {
+            // In the middle - center the selection
+            safe_selected_index - visible_items / 2
+        };
+        
+        let end_index = (start_index + visible_items).min(total_items);
+
+        // Create dropdown content with scrolling window
         let mut lines = Vec::new();
         
-        // Add each method as a separate line
-        lines.push(Line::from(vec![
-            if safe_selected_index == 0 {
-                Span::styled("►►► GET ◄◄◄ [SELECTED]", self.theme.highlight_style())
-            } else {
-                Span::styled("    GET", self.theme.text_style())
-            }
-        ]));
+        // Add scroll indicator at top if there are items above
+        if start_index > 0 {
+            lines.push(Line::from(vec![
+                Span::styled("    ▲ More above ▲", self.theme.text_style())
+            ]));
+        }
         
-        lines.push(Line::from(vec![
-            if safe_selected_index == 1 {
-                Span::styled("►►► POST ◄◄◄ [SELECTED]", self.theme.highlight_style())
-            } else {
-                Span::styled("    POST", self.theme.text_style())
-            }
-        ]));
+        // Add visible methods
+        for i in start_index..end_index {
+            let method = methods[i];
+            lines.push(Line::from(vec![
+                if i == safe_selected_index {
+                    Span::styled(format!("►►► {} ◄◄◄ [SELECTED]", method), self.theme.highlight_style())
+                } else {
+                    Span::styled(format!("    {}", method), self.theme.text_style())
+                }
+            ]));
+        }
         
-        lines.push(Line::from(vec![
-            if safe_selected_index == 2 {
-                Span::styled("►►► PUT ◄◄◄ [SELECTED]", self.theme.highlight_style())
-            } else {
-                Span::styled("    PUT", self.theme.text_style())
-            }
-        ]));
-        
-        lines.push(Line::from(vec![
-            if safe_selected_index == 3 {
-                Span::styled("►►► DELETE ◄◄◄ [SELECTED]", self.theme.highlight_style())
-            } else {
-                Span::styled("    DELETE", self.theme.text_style())
-            }
-        ]));
-        
-        lines.push(Line::from(vec![
-            if safe_selected_index == 4 {
-                Span::styled("►►► PATCH ◄◄◄ [SELECTED]", self.theme.highlight_style())
-            } else {
-                Span::styled("    PATCH", self.theme.text_style())
-            }
-        ]));
-        
-        lines.push(Line::from(vec![
-            if safe_selected_index == 5 {
-                Span::styled("►►► HEAD ◄◄◄ [SELECTED]", self.theme.highlight_style())
-            } else {
-                Span::styled("    HEAD", self.theme.text_style())
-            }
-        ]));
-        
-        lines.push(Line::from(vec![
-            if safe_selected_index == 6 {
-                Span::styled("►►► OPTIONS ◄◄◄ [SELECTED]", self.theme.highlight_style())
-            } else {
-                Span::styled("    OPTIONS", self.theme.text_style())
-            }
-        ]));
+        // Add scroll indicator at bottom if there are items below
+        if end_index < total_items {
+            lines.push(Line::from(vec![
+                Span::styled("    ▼ More below ▼", self.theme.text_style())
+            ]));
+        }
 
         let dropdown_text = Text::from(lines);
 
         let dropdown_block = Block::default()
-            .title("Method [EDITING] - Use ↑/↓ to navigate, Enter to select")
+            .title(format!("Method [EDITING] - {}/{} - Use ↑/↓ to navigate, Enter to select", safe_selected_index + 1, total_items))
             .borders(Borders::ALL)
             .style(self.theme.editing_border_style());
 
