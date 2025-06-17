@@ -48,7 +48,7 @@ pub enum AppState {
 }
 
 /// Editable fields
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum EditField {
     /// URL field
     Url,

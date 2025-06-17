@@ -15,7 +15,7 @@ use ratatui::{backend::CrosstermBackend, Terminal};
 use std::{error::Error, io, time::Duration};
 use ui::{Event, EventHandler, Theme};
 use ui::components::{
-    CommandBuilder, CommandDisplay, OptionsPanel, OutputPanel, TemplatesTree,
+    CommandBuilder, CommandDisplay, OptionsPanel, OutputPanel, StatusBar, TemplatesTree,
 };
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -65,44 +65,49 @@ fn run_app<B: ratatui::backend::Backend>(
         terminal.draw(|f| {
             let size = f.size();
             
-            // Create layout
+            // Create layout with status bar at the top
             let chunks = ratatui::layout::Layout::default()
                 .direction(ratatui::layout::Direction::Vertical)
                 .constraints([
+                    ratatui::layout::Constraint::Length(5),      // Status bar
                     ratatui::layout::Constraint::Percentage(30), // Templates and command builder (balanced for dropdown)
                     ratatui::layout::Constraint::Percentage(10), // Command display
-                    ratatui::layout::Constraint::Percentage(60), // Output (balanced allocation)
+                    ratatui::layout::Constraint::Percentage(55), // Output (adjusted for status bar)
                 ])
                 .split(size);
             
-            // Create horizontal layout for top section
-            let top_chunks = ratatui::layout::Layout::default()
+            // Render status bar
+            let status_bar = StatusBar::new(&app, &theme);
+            status_bar.render(f, chunks[0]);
+            
+            // Create horizontal layout for main section
+            let main_chunks = ratatui::layout::Layout::default()
                 .direction(ratatui::layout::Direction::Horizontal)
                 .constraints([
                     ratatui::layout::Constraint::Percentage(20), // Templates
                     ratatui::layout::Constraint::Length(15),     // Method (square box)
                     ratatui::layout::Constraint::Min(0),        // Command builder (remaining space)
                 ])
-                .split(chunks[0]);
+                .split(chunks[1]);
             
             // Render templates
             let templates_tree = TemplatesTree::new(&app, &theme);
-            templates_tree.render(f, top_chunks[0]);
+            templates_tree.render(f, main_chunks[0]);
             
             // Render method selection
             let command_builder = CommandBuilder::new(&app, &theme);
-            command_builder.render_method_component(f, top_chunks[1]);
+            command_builder.render_method_component(f, main_chunks[1]);
             
             // Render command builder (without method)
-            command_builder.render(f, top_chunks[2]);
+            command_builder.render(f, main_chunks[2]);
             
             // Render command display
             let command_display = CommandDisplay::new(&app, &theme);
-            command_display.render(f, chunks[1]);
+            command_display.render(f, chunks[2]);
             
             // Render output
             let output_panel = OutputPanel::new(&app, &theme);
-            output_panel.render(f, chunks[2]);
+            output_panel.render(f, chunks[3]);
         })?;
         
         // Handle events
