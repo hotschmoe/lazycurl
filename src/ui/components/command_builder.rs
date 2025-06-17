@@ -521,9 +521,11 @@ impl<'a> CommandBuilder<'a> {
         for (i, method) in methods.iter().enumerate() {
             lines.push(Line::from(vec![
                 if i == safe_selected_index {
-                    Span::styled(format!("  ► {} ◄", method), self.theme.highlight_style())
+                    let formatted_text = format!(" ► {}", method);
+                    let additional_padding = 10 - formatted_text.chars().count();
+                    Span::styled(format!("{}{} ◄ ", formatted_text, " ".repeat(additional_padding)), self.theme.highlight_style())
                 } else {
-                    Span::styled(format!("    {}", method), self.theme.text_style())
+                    Span::styled(format!("   {}", method), self.theme.text_style())
                 }
             ]));
         }
