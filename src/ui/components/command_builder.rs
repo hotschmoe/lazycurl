@@ -48,9 +48,20 @@ impl<'a> CommandBuilder<'a> {
         }
     }
 
-    /// Render URL input
+    /// Render method component (standalone)
+    pub fn render_method_component(&self, frame: &mut Frame, area: Rect) {
+        // Check if method dropdown is open
+        let is_dropdown_open = matches!(&self.app.state, AppState::MethodDropdown);
+        
+        if is_dropdown_open {
+            self.render_method_dropdown(frame, area);
+        } else {
+            self.render_method_selection(frame, area);
+        }
+    }
+
+    /// Render URL input (without method)
     fn render_url_input(&self, frame: &mut Frame, area: Rect) {
-        let method = self.app.current_command.method.as_ref().unwrap_or(&HttpMethod::GET);
         let url = &self.app.current_command.url;
 
         // Check if we're editing the URL
@@ -85,12 +96,6 @@ impl<'a> CommandBuilder<'a> {
 
         let text = Text::from(vec![
             Line::from(vec![
-                Span::styled(
-                    format!("{} ", method),
-                    Style::default()
-                        .fg(self.theme.primary)
-                        .add_modifier(Modifier::BOLD),
-                ),
                 Span::styled(url_display, url_style),
             ]),
         ]);
@@ -106,7 +111,7 @@ impl<'a> CommandBuilder<'a> {
 
         // Add title indicator for editing mode
         let title = if is_editing_url {
-            "URL [EDITING]"
+            "URL [EDIT]"
         } else if is_url_selected {
             "URL [SELECTED]"
         } else {
@@ -146,32 +151,7 @@ impl<'a> CommandBuilder<'a> {
 
     /// Render URL tab
     fn render_url_tab(&self, frame: &mut Frame, area: Rect) {
-        // Check if method dropdown is open
-        let is_dropdown_open = matches!(&self.app.state, AppState::MethodDropdown);
-        
-        // Adjust layout based on dropdown state
-        let chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints(if is_dropdown_open {
-                [
-                    Constraint::Length(12), // Method dropdown (fixed height for dropdown)
-                    Constraint::Min(0),     // Query parameters (remaining space)
-                ]
-            } else {
-                [
-                    Constraint::Length(3),  // Method selection (normal size)
-                    Constraint::Min(0),     // Query parameters (full space when dropdown is closed)
-                ]
-            })
-            .split(area);
-        
-        if is_dropdown_open {
-            self.render_method_dropdown(frame, chunks[0]);
-        } else {
-            self.render_method_selection(frame, chunks[0]);
-        }
-
-        // Render query parameters
+        // Render query parameters (now takes the full area)
         let query_block = Block::default()
             .title("Query Parameters")
             .borders(Borders::ALL)
@@ -216,7 +196,7 @@ impl<'a> CommandBuilder<'a> {
 
                 // Add status indicator
                 let status_indicator = if is_editing {
-                    " [EDITING]"
+                    " [EDIT]"
                 } else if is_selected {
                     " [SELECTED]"
                 } else {
@@ -236,7 +216,7 @@ impl<'a> CommandBuilder<'a> {
         };
 
         let query_paragraph = Paragraph::new(query_text).block(query_block);
-        frame.render_widget(query_paragraph, chunks[1]);
+        frame.render_widget(query_paragraph, area);
     }
 
     /// Render headers tab
@@ -285,7 +265,7 @@ impl<'a> CommandBuilder<'a> {
 
                 // Add status indicator
                 let status_indicator = if is_editing {
-                    " [EDITING]"
+                    " [EDIT]"
                 } else if is_selected {
                     " [SELECTED]"
                 } else {
@@ -330,7 +310,7 @@ impl<'a> CommandBuilder<'a> {
 
         // Add title indicator for editing mode
         let title = if is_editing_body {
-            "Request Body [EDITING]"
+            "Request Body [EDIT]"
         } else if is_content_selected {
             "Request Body [SELECTED]"
         } else {
@@ -456,7 +436,7 @@ impl<'a> CommandBuilder<'a> {
 
                 // Add status indicator
                 let status_indicator = if is_editing {
-                    " [EDITING]"
+                    " [EDIT]"
                 } else if is_selected {
                     " [SELECTED]"
                 } else {
@@ -497,7 +477,6 @@ impl<'a> CommandBuilder<'a> {
 
         let method_text = Text::from(vec![
             Line::from(vec![
-                Span::raw("HTTP Method: "),
                 Span::styled(&current_method, method_style),
                 Span::raw(" ▼"), // Dropdown indicator
             ]),
@@ -535,58 +514,24 @@ impl<'a> CommandBuilder<'a> {
         // but use modulo to preserve circular behavior
         let safe_selected_index = selected_index % methods.len();
 
-        // Calculate scrolling window - show 5 items at a time with proper circular behavior
-        let visible_items = 5;
-        let total_items = methods.len();
-        
-        // Calculate the start index for the visible window
-        // Center the selected item when possible
-        let start_index = if safe_selected_index < visible_items / 2 {
-            // Near the beginning - show from start
-            0
-        } else if safe_selected_index >= total_items - visible_items / 2 {
-            // Near the end - show the last visible_items
-            total_items.saturating_sub(visible_items)
-        } else {
-            // In the middle - center the selection
-            safe_selected_index - visible_items / 2
-        };
-        
-        let end_index = (start_index + visible_items).min(total_items);
-
-        // Create dropdown content with scrolling window
+        // Show all methods since we now have dedicated vertical space
         let mut lines = Vec::new();
         
-        // Add scroll indicator at top if there are items above
-        if start_index > 0 {
-            lines.push(Line::from(vec![
-                Span::styled("    ▲ More above ▲", self.theme.text_style())
-            ]));
-        }
-        
-        // Add visible methods
-        for i in start_index..end_index {
-            let method = methods[i];
+        // Add all methods
+        for (i, method) in methods.iter().enumerate() {
             lines.push(Line::from(vec![
                 if i == safe_selected_index {
-                    Span::styled(format!("►►► {} ◄◄◄ [SELECTED]", method), self.theme.highlight_style())
+                    Span::styled(format!("  ► {} ◄", method), self.theme.highlight_style())
                 } else {
                     Span::styled(format!("    {}", method), self.theme.text_style())
                 }
-            ]));
-        }
-        
-        // Add scroll indicator at bottom if there are items below
-        if end_index < total_items {
-            lines.push(Line::from(vec![
-                Span::styled("    ▼ More below ▼", self.theme.text_style())
             ]));
         }
 
         let dropdown_text = Text::from(lines);
 
         let dropdown_block = Block::default()
-            .title(format!("Method [EDITING] - {}/{} - Use ↑/↓ to navigate, Enter to select", safe_selected_index + 1, total_items))
+            .title("Method [EDIT]")
             .borders(Borders::ALL)
             .style(self.theme.editing_border_style());
 

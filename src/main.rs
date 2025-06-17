@@ -80,7 +80,8 @@ fn run_app<B: ratatui::backend::Backend>(
                 .direction(ratatui::layout::Direction::Horizontal)
                 .constraints([
                     ratatui::layout::Constraint::Percentage(20), // Templates
-                    ratatui::layout::Constraint::Percentage(80), // Command builder
+                    ratatui::layout::Constraint::Length(15),     // Method (square box)
+                    ratatui::layout::Constraint::Min(0),        // Command builder (remaining space)
                 ])
                 .split(chunks[0]);
             
@@ -88,9 +89,12 @@ fn run_app<B: ratatui::backend::Backend>(
             let templates_tree = TemplatesTree::new(&app, &theme);
             templates_tree.render(f, top_chunks[0]);
             
-            // Render command builder
+            // Render method selection
             let command_builder = CommandBuilder::new(&app, &theme);
-            command_builder.render(f, top_chunks[1]);
+            command_builder.render_method_component(f, top_chunks[1]);
+            
+            // Render command builder (without method)
+            command_builder.render(f, top_chunks[2]);
             
             // Render command display
             let command_display = CommandDisplay::new(&app, &theme);
