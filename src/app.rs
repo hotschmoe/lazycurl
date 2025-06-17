@@ -441,14 +441,14 @@ impl App {
                         }
                     }
                     UrlField::QueryParam(idx) => {
-                        if *idx < self.current_command.query_params.len() - 1 {
+                        if !self.current_command.query_params.is_empty() && *idx < self.current_command.query_params.len() - 1 {
                             self.ui_state.selected_field = SelectedField::Url(UrlField::QueryParam(idx + 1));
                         }
                     }
                 }
             }
             SelectedField::Headers(idx) => {
-                if *idx < self.current_command.headers.len() - 1 {
+                if !self.current_command.headers.is_empty() && *idx < self.current_command.headers.len() - 1 {
                     self.ui_state.selected_field = SelectedField::Headers(idx + 1);
                 }
             }
@@ -463,7 +463,7 @@ impl App {
                 }
             }
             SelectedField::Options(idx) => {
-                if *idx < self.current_command.options.len() - 1 {
+                if !self.current_command.options.is_empty() && *idx < self.current_command.options.len() - 1 {
                     self.ui_state.selected_field = SelectedField::Options(idx + 1);
                 }
             }
