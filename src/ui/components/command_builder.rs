@@ -89,7 +89,8 @@ impl<'a> CommandBuilder<'a> {
 
         // Add visual indicator for editing mode
         let url_display = if is_editing_url {
-            format!("{} █", url_text) // Add cursor indicator
+            let cursor = if self.app.ui_state.cursor_visible { "█" } else { " " };
+            format!("{}{}", url_text, cursor) // Add blinking cursor indicator
         } else {
             url_text.to_string()
         };
@@ -189,7 +190,8 @@ impl<'a> CommandBuilder<'a> {
 
                 // Add visual indicator for editing mode
                 let value_display = if is_editing {
-                    format!("{} █", value_text) // Add cursor indicator
+                    let cursor = if self.app.ui_state.cursor_visible { "█" } else { " " };
+                    format!("{}{}", value_text, cursor) // Add blinking cursor indicator
                 } else {
                     value_text.to_string()
                 };
@@ -258,7 +260,8 @@ impl<'a> CommandBuilder<'a> {
 
                 // Add visual indicator for editing mode
                 let value_display = if is_editing {
-                    format!("{} █", value_text) // Add cursor indicator
+                    let cursor = if self.app.ui_state.cursor_visible { "█" } else { " " };
+                    format!("{}{}", value_text, cursor) // Add blinking cursor indicator
                 } else {
                     value_text.to_string()
                 };
@@ -324,8 +327,9 @@ impl<'a> CommandBuilder<'a> {
 
         // Check if we're editing the body
         let text = if is_editing_body {
-            // Add cursor indicator for editing mode
-            let content_with_cursor = format!("{} █", self.app.ui_state.edit_buffer);
+            // Add blinking cursor indicator for editing mode
+            let cursor = if self.app.ui_state.cursor_visible { "█" } else { " " };
+            let content_with_cursor = format!("{}{}", self.app.ui_state.edit_buffer, cursor);
             Text::from(vec![Line::from(Span::styled(content_with_cursor, self.theme.editing_style()))])
         } else {
             match &self.app.current_command.body {
@@ -426,7 +430,8 @@ impl<'a> CommandBuilder<'a> {
 
                 // Check if we're editing this option
                 let value_display = if is_editing {
-                    format!(": {} █", self.app.ui_state.edit_buffer) // Add cursor indicator
+                    let cursor = if self.app.ui_state.cursor_visible { "█" } else { " " };
+                    format!(": {}{}", self.app.ui_state.edit_buffer, cursor) // Add blinking cursor indicator
                 } else {
                     match &option.value {
                         Some(val) => format!(": {}", val),

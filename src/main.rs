@@ -120,6 +120,8 @@ fn run_app<B: ratatui::backend::Backend>(
                 }
                 Event::Tick => {
                     app.update_command();
+                    // Toggle cursor for blinking effect
+                    app.toggle_cursor();
                 }
                 _ => {}
             }

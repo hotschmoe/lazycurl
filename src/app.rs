@@ -88,6 +88,10 @@ pub struct UiState {
     pub edit_buffer: String,
     /// Selected method index in dropdown (when dropdown is open)
     pub method_dropdown_index: usize,
+    /// Cursor visibility for blinking effect
+    pub cursor_visible: bool,
+    /// Cursor blink counter for slower blinking
+    pub cursor_blink_counter: u8,
 }
 
 /// Selected field in each tab
@@ -173,6 +177,8 @@ impl Default for App {
                 selected_option_category: OptionCategory::Basic,
                 edit_buffer: String::new(),
                 method_dropdown_index: 0,
+                cursor_visible: true,
+                cursor_blink_counter: 0,
             },
             executor: None,
         }
@@ -745,6 +751,14 @@ impl App {
     /// Update the current command based on user input
     pub fn update_command(&mut self) {
         // This will be implemented to update the command based on UI state
+    }
+
+    /// Toggle cursor visibility for blinking effect (slower)
+    pub fn toggle_cursor(&mut self) {
+        self.ui_state.cursor_blink_counter = (self.ui_state.cursor_blink_counter + 1) % 6; // Blink every 6 ticks (slower)
+        if self.ui_state.cursor_blink_counter == 0 {
+            self.ui_state.cursor_visible = !self.ui_state.cursor_visible;
+        }
     }
 
     /// Execute the current command
