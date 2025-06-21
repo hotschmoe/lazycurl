@@ -37,6 +37,37 @@ TVRL (Terminal Visual Curl) is a terminal-based UI application that provides a v
    cargo run --release
    ```
 
+## Development
+
+For development, you can use the included development script that automatically rebuilds and restarts the application when you make changes:
+
+```bash
+./dev.sh
+```
+
+This uses `cargo-watch` to monitor file changes and automatically restart the application. The script will:
+- Watch for changes in your source files
+- Automatically rebuild the project when changes are detected
+- Restart the application with the new changes
+- Display build errors if compilation fails
+
+To stop the development server, press `Ctrl+C`.
+
+### Manual Development Commands
+
+If you prefer to run commands manually:
+
+```bash
+# Install cargo-watch (if not already installed)
+cargo install cargo-watch
+
+# Run with automatic restart on file changes
+cargo watch -x run
+
+# Or run normally for a single execution
+cargo run
+```
+
 ## Usage
 
 TVRL provides a terminal UI for building curl commands. The interface is divided into several panels:
