@@ -15,7 +15,7 @@ use ratatui::{backend::CrosstermBackend, Terminal};
 use std::{error::Error, io, time::Duration};
 use ui::{Event, EventHandler, Theme};
 use ui::components::{
-    CommandBuilder, CommandDisplay, OptionsPanel, OutputPanel, StatusBar, TemplatesTree,
+    CommandBuilder, CommandDisplay, OptionsPanel, OutputPanel, StatusBar, TemplatesTree, UrlContainer,
 };
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -86,7 +86,7 @@ fn run_app<B: ratatui::backend::Backend>(
                 .constraints([
                     ratatui::layout::Constraint::Percentage(20), // Templates
                     ratatui::layout::Constraint::Length(15),     // Method (square box)
-                    ratatui::layout::Constraint::Min(0),        // Command builder (remaining space)
+                    ratatui::layout::Constraint::Min(0),        // URL Container (remaining space)
                 ])
                 .split(chunks[1]);
             
@@ -98,8 +98,9 @@ fn run_app<B: ratatui::backend::Backend>(
             let command_builder = CommandBuilder::new(&app, &theme);
             command_builder.render_method_component(f, main_chunks[1]);
             
-            // Render command builder (without method)
-            command_builder.render(f, main_chunks[2]);
+            // Render URL container (URL, tabs, and editor box)
+            let url_container = UrlContainer::new(&app, &theme);
+            url_container.render(f, main_chunks[2]);
             
             // Render command display
             let command_display = CommandDisplay::new(&app, &theme);
