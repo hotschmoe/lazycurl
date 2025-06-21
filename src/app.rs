@@ -852,8 +852,18 @@ impl App {
                 // Format output for display
                 let mut display_output = String::new();
                 display_output.push_str(&format!("Command: {}\n", command));
-                display_output.push_str(&format!("Exit Code: {:?}\n", output.status.code()));
-                display_output.push_str(&format!("Execution Time: {:?}\n\n", execution_time));
+                
+                // Format exit code with meaningful message
+                match output.status.code() {
+                    Some(0) => display_output.push_str("Status: Success (0)\n"),
+                    Some(code) => {
+                        let error_msg = App::get_curl_error_message(code);
+                        display_output.push_str(&format!("Status: Error ({}) - {}\n", code, error_msg));
+                    }
+                    None => display_output.push_str("Status: Process terminated by signal\n"),
+                }
+                
+                display_output.push_str(&format!("Execution Time: {:.2}ms\n\n", execution_time.as_millis()));
                 
                 if !stdout.is_empty() {
                     display_output.push_str("STDOUT:\n");
@@ -890,6 +900,106 @@ impl App {
                 self.output = Some(format!("Error: {}", error_msg));
                 self.execution_result = Some(result);
             }
+        }
+    }
+
+    /// Get a human-readable error message for curl exit codes
+    fn get_curl_error_message(exit_code: i32) -> &'static str {
+        match exit_code {
+            1 => "Unsupported protocol",
+            2 => "Failed to initialize",
+            3 => "URL malformed",
+            4 => "A feature or option that was needed to perform the desired request was not enabled",
+            5 => "Couldn't resolve proxy",
+            6 => "Couldn't resolve host",
+            7 => "Failed to connect to host",
+            8 => "FTP weird server reply",
+            9 => "FTP access denied",
+            10 => "FTP accept failed",
+            11 => "FTP weird PASS reply",
+            12 => "FTP accept timeout",
+            13 => "FTP weird PASV reply",
+            14 => "FTP weird 227 format",
+            15 => "FTP can't get host",
+            16 => "HTTP/2 framing layer error",
+            17 => "FTP couldn't set binary",
+            18 => "Partial file transfer",
+            19 => "FTP couldn't download/access the given file",
+            20 => "FTP write error",
+            21 => "FTP quote error",
+            22 => "HTTP page not retrieved",
+            23 => "Write error",
+            24 => "Upload failed",
+            25 => "Failed to open/read local data",
+            26 => "Read error",
+            27 => "Out of memory",
+            28 => "Operation timeout",
+            29 => "FTP PORT failed",
+            30 => "FTP couldn't use REST",
+            31 => "HTTP range error",
+            32 => "HTTP post error",
+            33 => "SSL connect error",
+            34 => "FTP bad download resume",
+            35 => "FILE couldn't read file",
+            36 => "LDAP cannot bind",
+            37 => "LDAP search failed",
+            38 => "Function not found",
+            39 => "Aborted by callback",
+            40 => "Bad function argument",
+            41 => "Bad calling order",
+            42 => "HTTP Interface operation failed",
+            43 => "Bad password entered",
+            44 => "Too many redirects",
+            45 => "Unknown option specified",
+            46 => "Malformed telnet option",
+            47 => "The peer certificate cannot be authenticated",
+            48 => "Unknown TELNET option specified",
+            49 => "Malformed telnet option",
+            51 => "The peer's SSL certificate or SSH MD5 fingerprint was not OK",
+            52 => "The server didn't reply anything",
+            53 => "SSL crypto engine not found",
+            54 => "Cannot set SSL crypto engine as default",
+            55 => "Failed sending network data",
+            56 => "Failure in receiving network data",
+            58 => "Problem with the local certificate",
+            59 => "Couldn't use specified cipher",
+            60 => "Peer certificate cannot be authenticated with known CA certificates",
+            61 => "Unrecognized transfer encoding",
+            62 => "Invalid LDAP URL",
+            63 => "Maximum file size exceeded",
+            64 => "Requested FTP SSL level failed",
+            65 => "Sending the data requires a rewind that failed",
+            66 => "Failed to initialise SSL Engine",
+            67 => "The user name, password, or similar was not accepted and curl failed to log in",
+            68 => "File not found on TFTP server",
+            69 => "Permission problem on TFTP server",
+            70 => "Out of disk space on TFTP server",
+            71 => "Illegal TFTP operation",
+            72 => "Unknown transfer ID",
+            73 => "File already exists",
+            74 => "No such user",
+            75 => "Character conversion failed",
+            76 => "Character conversion functions required",
+            77 => "Problem with reading the SSL CA cert",
+            78 => "The resource referenced in the URL does not exist",
+            79 => "An unspecified error occurred during the SSH session",
+            80 => "Failed to shut down the SSL connection",
+            82 => "Could not load CRL file",
+            83 => "Issuer check failed",
+            84 => "The FTP PRET command failed",
+            85 => "RTSP: mismatch of CSeq numbers",
+            86 => "RTSP: mismatch of Session Identifiers",
+            87 => "Unable to parse FTP file list",
+            88 => "FTP chunk callback reported error",
+            89 => "No connection available, the session will be queued",
+            90 => "SSL public key does not matched pinned public key",
+            91 => "Invalid SSL certificate status",
+            92 => "Stream error in HTTP/2 framing layer",
+            93 => "An API function was called from inside a callback",
+            94 => "An authentication function returned an error",
+            95 => "A problem was detected in the HTTP/3 layer",
+            96 => "QUIC connection error",
+            _ => "Unknown error",
         }
     }
 
