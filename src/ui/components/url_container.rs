@@ -569,104 +569,142 @@ impl<'a> UrlContainer<'a> {
         let mut sorted_command_line_options = command_line_options.clone();
         sorted_command_line_options.sort_by(|a, b| a.flag.cmp(&b.flag));
         
-        // Combine active options and command line options
+        // Create a unified list of all options (both active and available)
         let mut lines = Vec::new();
         
-        // Add section header for active options
-        if !self.app.current_command.options.is_empty() {
+        // Add header row for the grid
+        lines.push(Line::from(vec![
+            Span::styled("Status", self.theme.header_style()),
+            Span::raw(" | "),
+            Span::styled("Option", self.theme.header_style()),
+            Span::raw(" | "),
+            Span::styled("Value", self.theme.header_style()),
+            Span::raw(" | "),
+            Span::styled("Description", self.theme.header_style()),
+        ]));
+        
+        // Add separator line
+        lines.push(Line::from("─────────────────────────────────────────────────────────────"));
+        
+        // First, add all active options
+        for (idx, option) in self.app.current_command.options.iter().enumerate() {
+            // Determine if this option is selected
+            let is_selected = matches!(
+                self.app.ui_state.selected_field,
+                SelectedField::Options(selected_idx) if selected_idx == idx
+            );
+            
+            // Check if we're editing this option
+            let is_editing = matches!(&self.app.state, AppState::Editing(EditField::OptionValue(edit_idx)) if *edit_idx == idx);
+            
+            // Status column (checkbox)
+            let status = if option.enabled { "✓" } else { "✗" };
+            
+            // Option column (flag)
+            let flag = &option.flag;
+            
+            // Value column
+            let value_display_string = if is_editing {
+                let cursor = if self.app.ui_state.cursor_visible { "█" } else { " " };
+                format!("{}{}", self.app.ui_state.edit_buffer, cursor) // Add blinking cursor indicator
+            } else {
+                match &option.value {
+                    Some(val) => val.clone(),
+                    None => String::new(),
+                }
+            };
+            
+            // Style based on selection and editing state
+            let style = if is_editing {
+                self.theme.editing_style()
+            } else if is_selected {
+                self.theme.selected_style()
+            } else {
+                self.theme.text_style()
+            };
+            
+            // Add status indicator
+            let status_indicator = if is_editing {
+                " [EDIT]"
+            } else if is_selected {
+                " "
+            } else {
+                ""
+            };
+            
+            // Get the option description if available
+            let description = match sorted_command_line_options.iter().find(|o| o.flag == option.flag) {
+                Some(opt_def) => &opt_def.description,
+                None => "",
+            };
+            
             lines.push(Line::from(vec![
-                Span::styled("Active Options", self.theme.header_style()),
+                Span::styled(status, style),
+                Span::raw(" | "),
+                Span::styled(flag, style),
+                Span::raw(" | "),
+                Span::styled(value_display_string.clone(), style),
+                Span::raw(" | "),
+                Span::styled(description, style),
+                Span::styled(status_indicator, if is_editing { self.theme.editing_style() } else { self.theme.selected_style() }),
             ]));
-            lines.push(Line::from(""));
-            
-            // Add active options
-            for (idx, option) in self.app.current_command.options.iter().enumerate() {
-                let enabled = if option.enabled { "✓" } else { "✗" };
-                
-                // Determine if this option is selected
-                let is_selected = matches!(
-                    self.app.ui_state.selected_field,
-                    SelectedField::Options(selected_idx) if selected_idx == idx
-                );
-
-                // Check if we're editing this option
-                let is_editing = matches!(&self.app.state, AppState::Editing(EditField::OptionValue(edit_idx)) if *edit_idx == idx);
-
-                // Style based on selection and editing state
-                let style = if is_editing {
-                    self.theme.editing_style()
-                } else if is_selected {
-                    self.theme.selected_style()
-                } else {
-                    self.theme.text_style()
-                };
-
-                // Check if we're editing this option
-                let value_display = if is_editing {
-                    let cursor = if self.app.ui_state.cursor_visible { "█" } else { " " };
-                    format!(": {}{}", self.app.ui_state.edit_buffer, cursor) // Add blinking cursor indicator
-                } else {
-                    match &option.value {
-                        Some(val) => format!(": {}", val),
-                        None => String::new(),
-                    }
-                };
-
-                // Add status indicator
-                let status_indicator = if is_editing {
-                    " [EDIT]"
-                } else if is_selected {
-                    " "
-                } else {
-                    ""
-                };
-
-                lines.push(Line::from(vec![
-                    Span::styled(enabled, style),
-                    Span::raw(" "),
-                    Span::styled(&option.flag, style),
-                    Span::styled(value_display, style),
-                    Span::styled(status_indicator, if is_editing { self.theme.editing_style() } else { self.theme.selected_style() }),
-                ]));
-            }
-            
-            // Add separator
-            lines.push(Line::from(""));
         }
         
-        // Add section header for command line options
-        lines.push(Line::from(vec![
-            Span::styled("Command Line Options", self.theme.header_style()),
-        ]));
-        lines.push(Line::from(""));
-        
-        // Add command line options
-        if sorted_command_line_options.is_empty() {
-            lines.push(Line::from(Span::raw("No command line options available")));
-        } else {
-            for option in sorted_command_line_options {
-                // Check if this option is already in the current command
-                let is_in_command = self.app.current_command.options.iter()
-                    .any(|o| o.flag == option.flag);
-                
-                // Display differently if already in command
-                let prefix = if is_in_command { "✓" } else { "☐" };
-                
-                let value_text = if option.takes_value {
-                    " <value>"
-                } else {
-                    ""
-                };
-                
-                lines.push(Line::from(vec![
-                    Span::styled(prefix, self.theme.text_style()),
-                    Span::raw(" "),
-                    Span::styled(&option.flag, Style::default().fg(self.theme.primary)),
-                    Span::styled(value_text, Style::default().fg(self.theme.secondary)),
-                    Span::raw(" - "),
-                    Span::styled(&option.description, self.theme.text_style()),
-                ]));
+        // Then, add all command line options that aren't already active
+        for (cmd_idx, option) in sorted_command_line_options.iter().enumerate() {
+            // Skip if this option is already in the active options
+            let is_in_command = self.app.current_command.options.iter()
+                .any(|o| o.flag == option.flag);
+            
+            if is_in_command {
+                continue;
             }
+            
+            // Calculate the absolute index (active options + command line option index)
+            let absolute_idx = self.app.current_command.options.len() + cmd_idx;
+            
+            // Check if this command line option is selected
+            let is_selected = matches!(
+                self.app.ui_state.selected_field,
+                SelectedField::Options(selected_idx) if selected_idx == absolute_idx
+            );
+            
+            // Status column (checkbox)
+            let status = "☐";
+            
+            // Option column (flag)
+            let flag = &option.flag;
+            
+            // Value column
+            let value_text_string = if option.takes_value {
+                "<value>".to_string()
+            } else {
+                "".to_string()
+            };
+            
+            // Description column
+            let description = &option.description;
+            
+            // Style based on selection state
+            let style = if is_selected {
+                self.theme.selected_style()
+            } else {
+                self.theme.text_style()
+            };
+            
+            // Add status indicator for selection
+            let status_indicator = if is_selected { " " } else { "" };
+            
+            lines.push(Line::from(vec![
+                Span::styled(status, style),
+                Span::raw(" | "),
+                Span::styled(flag, if is_selected { style } else { Style::default().fg(self.theme.primary) }),
+                Span::raw(" | "),
+                Span::styled(value_text_string.clone(), if is_selected { style } else { Style::default().fg(self.theme.secondary) }),
+                Span::raw(" | "),
+                Span::styled(description, style),
+                Span::styled(status_indicator, self.theme.selected_style()),
+            ]));
         }
         
         let text = Text::from(lines);

@@ -360,8 +360,16 @@ impl App {
                 self.execute_command();
                 false
             }
-            // Edit current field or load template
+            // Add command line option with Enter
             (KeyCode::Enter, KeyModifiers::NONE) => {
+                if let SelectedField::Options(idx) = self.ui_state.selected_field {
+                    // Check if we're selecting a command line option
+                    if self.is_command_line_option_selected(idx) {
+                        self.add_selected_command_line_option(idx);
+                        return false;
+                    }
+                }
+                
                 if let Some(template_idx) = self.ui_state.selected_template {
                     // Load the selected template
                     self.load_template(template_idx);
@@ -475,7 +483,19 @@ impl App {
                 }
             }
             SelectedField::Options(idx) => {
-                if !self.current_command.options.is_empty() && *idx < self.current_command.options.len() - 1 {
+                // Get the total number of options (active + command line options)
+                let curl_options = crate::command::options::CurlOptions::new();
+                let command_line_options = curl_options.get_options_by_category(
+                    &crate::command::options::OptionCategory::CommandLine
+                );
+                
+                // Sort command line options by flag to ensure stable ordering
+                let mut sorted_command_line_options = command_line_options.clone();
+                sorted_command_line_options.sort_by(|a, b| a.flag.cmp(&b.flag));
+                
+                let total_options = self.current_command.options.len() + sorted_command_line_options.len();
+                
+                if *idx < total_options - 1 {
                     self.ui_state.selected_field = SelectedField::Options(idx + 1);
                 }
             }
@@ -1195,6 +1215,54 @@ impl App {
         }
 
         args
+    }
+
+    /// Check if the selected option is a command line option
+    fn is_command_line_option_selected(&self, idx: usize) -> bool {
+        // If the index is within the range of current options, it's not a command line option
+        if idx < self.current_command.options.len() {
+            return false;
+        }
+        
+        // Otherwise, it's a command line option
+        true
+    }
+    
+    /// Add the selected command line option to the current command
+    fn add_selected_command_line_option(&mut self, idx: usize) {
+        // Get the command line options
+        let curl_options = crate::command::options::CurlOptions::new();
+        let command_line_options = curl_options.get_options_by_category(
+            &crate::command::options::OptionCategory::CommandLine
+        );
+        
+        // Sort command line options by flag to ensure stable ordering (same as in rendering)
+        let mut sorted_command_line_options = command_line_options.clone();
+        sorted_command_line_options.sort_by(|a, b| a.flag.cmp(&b.flag));
+        
+        // Calculate the index in the command line options list
+        let cmd_option_idx = idx - self.current_command.options.len();
+        
+        // Check if the index is valid
+        if cmd_option_idx < sorted_command_line_options.len() {
+            // Get the option definition
+            let option_def = &sorted_command_line_options[cmd_option_idx];
+            
+            // Check if this option is already in the current command
+            let already_exists = self.current_command.options.iter()
+                .any(|o| o.flag == option_def.flag);
+            
+            // If not already added, add it to the current command
+            if !already_exists {
+                self.current_command.add_option(
+                    option_def.flag.clone(),
+                    if option_def.takes_value { Some(String::new()) } else { None }
+                );
+                
+                // Update the selected field to point to the newly added option
+                self.ui_state.selected_field = SelectedField::Options(self.current_command.options.len() - 1);
+            }
+        }
     }
 }
 
