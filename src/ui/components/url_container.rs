@@ -556,11 +556,30 @@ impl<'a> UrlContainer<'a> {
             .title(title)
             .borders(Borders::ALL)
             .style(border_style);
-
-        let text = if self.app.current_command.options.is_empty() {
-            Text::from(vec![Line::from(Span::raw("No options"))])
-        } else {
-            let mut lines = Vec::new();
+            
+        // Create a CurlOptions instance to get the available options
+        let curl_options = crate::command::options::CurlOptions::new();
+        
+        // Get command line options
+        let command_line_options = curl_options.get_options_by_category(
+            &crate::command::options::OptionCategory::CommandLine
+        );
+        
+        // Sort command line options by flag to ensure stable ordering
+        let mut sorted_command_line_options = command_line_options.clone();
+        sorted_command_line_options.sort_by(|a, b| a.flag.cmp(&b.flag));
+        
+        // Combine active options and command line options
+        let mut lines = Vec::new();
+        
+        // Add section header for active options
+        if !self.app.current_command.options.is_empty() {
+            lines.push(Line::from(vec![
+                Span::styled("Active Options", self.theme.header_style()),
+            ]));
+            lines.push(Line::from(""));
+            
+            // Add active options
             for (idx, option) in self.app.current_command.options.iter().enumerate() {
                 let enabled = if option.enabled { "✓" } else { "✗" };
                 
@@ -610,9 +629,47 @@ impl<'a> UrlContainer<'a> {
                     Span::styled(status_indicator, if is_editing { self.theme.editing_style() } else { self.theme.selected_style() }),
                 ]));
             }
-            Text::from(lines)
-        };
-
+            
+            // Add separator
+            lines.push(Line::from(""));
+        }
+        
+        // Add section header for command line options
+        lines.push(Line::from(vec![
+            Span::styled("Command Line Options", self.theme.header_style()),
+        ]));
+        lines.push(Line::from(""));
+        
+        // Add command line options
+        if sorted_command_line_options.is_empty() {
+            lines.push(Line::from(Span::raw("No command line options available")));
+        } else {
+            for option in sorted_command_line_options {
+                // Check if this option is already in the current command
+                let is_in_command = self.app.current_command.options.iter()
+                    .any(|o| o.flag == option.flag);
+                
+                // Display differently if already in command
+                let prefix = if is_in_command { "✓" } else { "☐" };
+                
+                let value_text = if option.takes_value {
+                    " <value>"
+                } else {
+                    ""
+                };
+                
+                lines.push(Line::from(vec![
+                    Span::styled(prefix, self.theme.text_style()),
+                    Span::raw(" "),
+                    Span::styled(&option.flag, Style::default().fg(self.theme.primary)),
+                    Span::styled(value_text, Style::default().fg(self.theme.secondary)),
+                    Span::raw(" - "),
+                    Span::styled(&option.description, self.theme.text_style()),
+                ]));
+            }
+        }
+        
+        let text = Text::from(lines);
         let paragraph = Paragraph::new(text).block(block);
         frame.render_widget(paragraph, area);
     }

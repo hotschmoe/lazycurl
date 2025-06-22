@@ -20,6 +20,8 @@ pub enum OptionCategory {
     Proxy,
     /// Output options
     Output,
+    /// Command Line options
+    CommandLine,
 }
 
 impl std::fmt::Display for OptionCategory {
@@ -33,6 +35,7 @@ impl std::fmt::Display for OptionCategory {
             OptionCategory::Ssl => write!(f, "SSL/TLS Options"),
             OptionCategory::Proxy => write!(f, "Proxy Options"),
             OptionCategory::Output => write!(f, "Output Options"),
+            OptionCategory::CommandLine => write!(f, "Command Line Options"),
         }
     }
 }
@@ -132,41 +135,25 @@ impl CurlOptions {
         vec![
             // Basic Options
             OptionDefinition {
-                flag: "-v".to_string(),
-                long_flag: Some("--verbose".to_string()),
-                description: "Make the operation more talkative".to_string(),
+                flag: "-#".to_string(),
+                long_flag: Some("--progress-bar".to_string()),
+                description: "Display transfer progress as a bar".to_string(),
                 takes_value: false,
                 category: OptionCategory::Basic,
                 tier: OptionTier::Basic,
             },
             OptionDefinition {
-                flag: "-s".to_string(),
-                long_flag: Some("--silent".to_string()),
-                description: "Silent mode".to_string(),
+                flag: "-L".to_string(),
+                long_flag: Some("--location".to_string()),
+                description: "Follow redirects".to_string(),
                 takes_value: false,
                 category: OptionCategory::Basic,
                 tier: OptionTier::Basic,
             },
             OptionDefinition {
-                flag: "-S".to_string(),
-                long_flag: Some("--show-error".to_string()),
-                description: "Show error even when silent".to_string(),
-                takes_value: false,
-                category: OptionCategory::Basic,
-                tier: OptionTier::Basic,
-            },
-            OptionDefinition {
-                flag: "-i".to_string(),
-                long_flag: Some("--include".to_string()),
-                description: "Include protocol response headers in the output".to_string(),
-                takes_value: false,
-                category: OptionCategory::Basic,
-                tier: OptionTier::Basic,
-            },
-            OptionDefinition {
-                flag: "-I".to_string(),
-                long_flag: Some("--head".to_string()),
-                description: "Show document info only".to_string(),
+                flag: "-f".to_string(),
+                long_flag: Some("--fail".to_string()),
+                description: "Fail silently on server errors".to_string(),
                 takes_value: false,
                 category: OptionCategory::Basic,
                 tier: OptionTier::Basic,
@@ -464,6 +451,104 @@ impl CurlOptions {
                 takes_value: true,
                 category: OptionCategory::Output,
                 tier: OptionTier::Advanced,
+            },
+            
+            // Command Line Options
+            OptionDefinition {
+                flag: "-v".to_string(),
+                long_flag: Some("--verbose".to_string()),
+                description: "Make the operation more talkative".to_string(),
+                takes_value: false,
+                category: OptionCategory::CommandLine,
+                tier: OptionTier::Basic,
+            },
+            OptionDefinition {
+                flag: "-s".to_string(),
+                long_flag: Some("--silent".to_string()),
+                description: "Silent mode".to_string(),
+                takes_value: false,
+                category: OptionCategory::CommandLine,
+                tier: OptionTier::Basic,
+            },
+            OptionDefinition {
+                flag: "-S".to_string(),
+                long_flag: Some("--show-error".to_string()),
+                description: "Show error even when silent".to_string(),
+                takes_value: false,
+                category: OptionCategory::CommandLine,
+                tier: OptionTier::Basic,
+            },
+            OptionDefinition {
+                flag: "-i".to_string(),
+                long_flag: Some("--include".to_string()),
+                description: "Include protocol response headers in the output".to_string(),
+                takes_value: false,
+                category: OptionCategory::CommandLine,
+                tier: OptionTier::Basic,
+            },
+            OptionDefinition {
+                flag: "-I".to_string(),
+                long_flag: Some("--head".to_string()),
+                description: "Show document info only".to_string(),
+                takes_value: false,
+                category: OptionCategory::CommandLine,
+                tier: OptionTier::Basic,
+            },
+            OptionDefinition {
+                flag: "-q".to_string(),
+                long_flag: Some("--disable".to_string()),
+                description: "Disable .curlrc".to_string(),
+                takes_value: false,
+                category: OptionCategory::CommandLine,
+                tier: OptionTier::Basic,
+            },
+            OptionDefinition {
+                flag: "-V".to_string(),
+                long_flag: Some("--version".to_string()),
+                description: "Show version number and quit".to_string(),
+                takes_value: false,
+                category: OptionCategory::CommandLine,
+                tier: OptionTier::Basic,
+            },
+            OptionDefinition {
+                flag: "-h".to_string(),
+                long_flag: Some("--help".to_string()),
+                description: "Show help text".to_string(),
+                takes_value: false,
+                category: OptionCategory::CommandLine,
+                tier: OptionTier::Basic,
+            },
+            OptionDefinition {
+                flag: "--trace".to_string(),
+                long_flag: None,
+                description: "Write a debug trace to FILE".to_string(),
+                takes_value: true,
+                category: OptionCategory::CommandLine,
+                tier: OptionTier::Basic,
+            },
+            OptionDefinition {
+                flag: "--trace-ascii".to_string(),
+                long_flag: None,
+                description: "Like --trace, but without hex output".to_string(),
+                takes_value: true,
+                category: OptionCategory::CommandLine,
+                tier: OptionTier::Basic,
+            },
+            OptionDefinition {
+                flag: "--trace-time".to_string(),
+                long_flag: None,
+                description: "Add time stamps to trace/verbose output".to_string(),
+                takes_value: false,
+                category: OptionCategory::CommandLine,
+                tier: OptionTier::Basic,
+            },
+            OptionDefinition {
+                flag: "-K".to_string(),
+                long_flag: Some("--config".to_string()),
+                description: "Read config from a file".to_string(),
+                takes_value: true,
+                category: OptionCategory::CommandLine,
+                tier: OptionTier::Basic,
             },
         ]
     }

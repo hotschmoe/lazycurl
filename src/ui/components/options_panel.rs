@@ -24,14 +24,15 @@ impl<'a> OptionsPanel<'a> {
     pub fn new(app: &'a App, theme: &'a Theme) -> Self {
         let mut category_state = ListState::default();
         category_state.select(Some(match app.ui_state.selected_option_category {
-            OptionCategory::Basic => 0,
-            OptionCategory::Request => 1,
-            OptionCategory::Authentication => 2,
-            OptionCategory::Connection => 3,
-            OptionCategory::Header => 4,
-            OptionCategory::Ssl => 5,
-            OptionCategory::Proxy => 6,
-            OptionCategory::Output => 7,
+            crate::app::OptionCategory::Basic => 0,
+            crate::app::OptionCategory::Request => 1,
+            crate::app::OptionCategory::Authentication => 2,
+            crate::app::OptionCategory::Connection => 3,
+            crate::app::OptionCategory::Header => 4,
+            crate::app::OptionCategory::Ssl => 5,
+            crate::app::OptionCategory::Proxy => 6,
+            crate::app::OptionCategory::Output => 7,
+            crate::app::OptionCategory::CommandLine => 8,
         }));
         
         Self {
@@ -78,6 +79,7 @@ impl<'a> OptionsPanel<'a> {
             ListItem::new("SSL/TLS Options"),
             ListItem::new("Proxy Options"),
             ListItem::new("Output Options"),
+            ListItem::new("Command Line Options"),
         ];
 
         // Create list
@@ -101,6 +103,7 @@ impl<'a> OptionsPanel<'a> {
             Some(5) => crate::command::options::OptionCategory::Ssl,
             Some(6) => crate::command::options::OptionCategory::Proxy,
             Some(7) => crate::command::options::OptionCategory::Output,
+            Some(8) => crate::command::options::OptionCategory::CommandLine,
             _ => crate::command::options::OptionCategory::Basic,
         };
 

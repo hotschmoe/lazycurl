@@ -157,6 +157,8 @@ pub enum OptionCategory {
     Proxy,
     /// Output options
     Output,
+    /// Command Line options
+    CommandLine,
 }
 
 impl Default for App {
@@ -177,7 +179,7 @@ impl Default for App {
                 templates_expanded: true,
                 environments_expanded: true,
                 history_expanded: false,
-                selected_option_category: OptionCategory::Basic,
+                selected_option_category: OptionCategory::CommandLine,
                 edit_buffer: String::new(),
                 method_dropdown_index: 0,
                 cursor_visible: true,
