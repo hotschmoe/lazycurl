@@ -12,33 +12,28 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use ratatui::{backend::CrosstermBackend, Terminal};
-use std::{error::Error, io, time::Duration};
+use std::{error::Error, io, panic, time::Duration};
 use ui::{Event, EventHandler, Theme};
 use ui::components::{
     CommandBuilder, CommandDisplay, OptionsPanel, OutputPanel, StatusBar, TemplatesTree, UrlContainer,
 };
 
 fn main() -> Result<(), Box<dyn Error>> {
-    // Setup terminal
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    // Create app state
-    let app = App::new();
-    
-    // Create UI theme
-    let theme = Theme::new();
-    
-    // Create event handler
-    let events = EventHandler::new(Duration::from_millis(100));
-    
-    // Run app
-    let res = run_app(&mut terminal, app, theme, events);
-    
-    // Restore terminal
+    // Wrap app execution to catch panics
+    let result = panic::catch_unwind(panic::AssertUnwindSafe(|| {
+        let app = App::new();
+        let theme = Theme::new();
+        let events = EventHandler::new(Duration::from_millis(100));
+        run_app(&mut terminal, app, theme, events)
+    }));
+
+    // Restore terminal state no matter what
     disable_raw_mode()?;
     execute!(
         terminal.backend_mut(),
@@ -46,12 +41,19 @@ fn main() -> Result<(), Box<dyn Error>> {
         DisableMouseCapture
     )?;
     terminal.show_cursor()?;
-    
-    if let Err(err) = res {
-        println!("{:?}", err);
+
+    // Handle result    
+    match result {
+        Ok(Ok(_)) => Ok(()),
+        Ok(Err(err)) => {
+            eprintln!("Application error: {:?}", err);
+            Err(Box::new(err))
+        }
+        Err(_) => {
+            eprintln!("Application panicked!");
+            Err("App crashed unexpectedly".into())
+        }
     }
-    
-    Ok(())
 }
 
 fn run_app<B: ratatui::backend::Backend>(
