@@ -95,9 +95,12 @@ pub struct UiState {
     pub cursor_blink_counter: u8,
     /// Text area for body editing
     pub body_textarea: TextArea<'static>,
+    /// Scroll offset for options tab
+    pub options_scroll_offset: usize,
 }
 
 /// Selected field in each tab
+#[derive(Clone)]
 pub enum SelectedField {
     /// URL tab fields
     Url(UrlField),
@@ -110,6 +113,7 @@ pub enum SelectedField {
 }
 
 /// URL tab fields
+#[derive(Clone)]
 pub enum UrlField {
     /// URL input
     Url,
@@ -120,6 +124,7 @@ pub enum UrlField {
 }
 
 /// Body tab fields
+#[derive(Clone)]
 pub enum BodyField {
     /// Body type selection
     Type,
@@ -163,9 +168,13 @@ pub enum OptionCategory {
 
 impl Default for App {
     fn default() -> Self {
+        // Create default command with -i option enabled
+        let mut default_command = CurlCommand::default();
+        default_command.add_option("-i".to_string(), None);
+        
         Self {
             state: AppState::Normal,
-            current_command: CurlCommand::default(),
+            current_command: default_command,
             templates: Vec::new(),
             environments: HashMap::new(),
             current_environment: "default".to_string(),
@@ -185,6 +194,7 @@ impl Default for App {
                 cursor_visible: true,
                 cursor_blink_counter: 0,
                 body_textarea: TextArea::default(),
+                options_scroll_offset: 0,
             },
             executor: None,
         }
@@ -217,6 +227,7 @@ impl App {
         get_command.name = "GET Example".to_string();
         get_command.url = "https://httpbin.org/get".to_string();
         get_command.method = Some(crate::models::command::HttpMethod::GET);
+        get_command.add_option("-i".to_string(), None); // Add -i option by default
         
         templates.push(CommandTemplate {
             id: "template_1".to_string(),
@@ -234,6 +245,7 @@ impl App {
         post_command.method = Some(crate::models::command::HttpMethod::POST);
         post_command.add_header("Content-Type".to_string(), "application/json".to_string());
         post_command.body = Some(crate::models::command::RequestBody::Raw(r#"{"key": "value"}"#.to_string()));
+        post_command.add_option("-i".to_string(), None); // Add -i option by default
         
         templates.push(CommandTemplate {
             id: "template_2".to_string(),
@@ -428,7 +440,10 @@ impl App {
 
     /// Navigate to the field above the current one
     fn navigate_field_up(&mut self) {
-        match &self.ui_state.selected_field {
+        // Extract the current field without borrowing
+        let current_field = self.ui_state.selected_field.clone();
+        
+        match current_field {
             SelectedField::Url(field) => {
                 match field {
                     UrlField::Url => {
@@ -438,7 +453,7 @@ impl App {
                         self.ui_state.selected_field = SelectedField::Url(UrlField::Url);
                     }
                     UrlField::QueryParam(idx) => {
-                        if *idx > 0 {
+                        if idx > 0 {
                             self.ui_state.selected_field = SelectedField::Url(UrlField::QueryParam(idx - 1));
                         } else {
                             self.ui_state.selected_field = SelectedField::Url(UrlField::Method);
@@ -447,7 +462,7 @@ impl App {
                 }
             }
             SelectedField::Headers(idx) => {
-                if *idx > 0 {
+                if idx > 0 {
                     self.ui_state.selected_field = SelectedField::Headers(idx - 1);
                 }
             }
@@ -462,8 +477,14 @@ impl App {
                 }
             }
             SelectedField::Options(idx) => {
-                if *idx > 0 {
+                if idx > 0 {
+                    // Update the selected field
                     self.ui_state.selected_field = SelectedField::Options(idx - 1);
+                    
+                    // Adjust scroll offset if needed
+                    if idx <= self.ui_state.options_scroll_offset {
+                        self.ui_state.options_scroll_offset = self.ui_state.options_scroll_offset.saturating_sub(1);
+                    }
                 }
             }
         }
@@ -471,7 +492,10 @@ impl App {
 
     /// Navigate to the field below the current one
     fn navigate_field_down(&mut self) {
-        match &self.ui_state.selected_field {
+        // Extract the current field without borrowing
+        let current_field = self.ui_state.selected_field.clone();
+        
+        match current_field {
             SelectedField::Url(field) => {
                 match field {
                     UrlField::Url => {
@@ -483,14 +507,14 @@ impl App {
                         }
                     }
                     UrlField::QueryParam(idx) => {
-                        if !self.current_command.query_params.is_empty() && *idx < self.current_command.query_params.len() - 1 {
+                        if !self.current_command.query_params.is_empty() && idx < self.current_command.query_params.len() - 1 {
                             self.ui_state.selected_field = SelectedField::Url(UrlField::QueryParam(idx + 1));
                         }
                     }
                 }
             }
             SelectedField::Headers(idx) => {
-                if !self.current_command.headers.is_empty() && *idx < self.current_command.headers.len() - 1 {
+                if !self.current_command.headers.is_empty() && idx < self.current_command.headers.len() - 1 {
                     self.ui_state.selected_field = SelectedField::Headers(idx + 1);
                 }
             }
@@ -517,8 +541,18 @@ impl App {
                 
                 let total_options = self.current_command.options.len() + sorted_command_line_options.len();
                 
-                if *idx < total_options - 1 {
+                if idx < total_options - 1 {
+                    // Update the selected field
                     self.ui_state.selected_field = SelectedField::Options(idx + 1);
+                    
+                    // Calculate visible rows (approximate)
+                    // This is a rough estimate - we'll refine this in the render method
+                    let visible_rows = 10; // Approximate number of visible rows
+                    
+                    // Adjust scroll offset if needed
+                    if idx >= self.ui_state.options_scroll_offset + visible_rows - 2 {
+                        self.ui_state.options_scroll_offset += 1;
+                    }
                 }
             }
         }

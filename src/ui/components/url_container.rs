@@ -582,12 +582,25 @@ impl<'a> UrlContainer<'a> {
             self.theme.border_style()
         };
         
+        // Get the current scroll offset
+        let scroll_offset = self.app.ui_state.options_scroll_offset;
+        
+        // Get the currently selected index (if any)
+        let selected_idx = if let SelectedField::Options(idx) = self.app.ui_state.selected_field {
+            Some(idx)
+        } else {
+            None
+        };
+        
+        // Create title with scroll indicator and shortcuts
         let title = if is_options_selected {
             let shortcuts = self.get_options_shortcuts();
+            let scroll_indicator = if scroll_offset > 0 { "↑ " } else { "" };
+            
             if !shortcuts.is_empty() {
-                format!("Curl Options  [{}]", shortcuts)
+                format!("{}Curl Options  [{}]", scroll_indicator, shortcuts)
             } else {
-                "Curl Options ".to_string()
+                format!("{}Curl Options ", scroll_indicator)
             }
         } else {
             "Curl Options".to_string()
@@ -611,7 +624,7 @@ impl<'a> UrlContainer<'a> {
         sorted_command_line_options.sort_by(|a, b| a.flag.cmp(&b.flag));
         
         // Create a unified list of all options (both active and available)
-        let mut lines = Vec::new();
+        let mut all_lines = Vec::new();
         
         // Calculate column widths for even spacing
         let total_width = area.width as usize - 2; // Account for borders
@@ -629,7 +642,7 @@ impl<'a> UrlContainer<'a> {
         };
         
         // Add header row for the grid
-        lines.push(Line::from(vec![
+        all_lines.push(Line::from(vec![
             Span::styled(format_column("Status", column_width), self.theme.header_style()),
             Span::styled(format_column("Option", column_width), self.theme.header_style()),
             Span::styled(format_column("Value", column_width), self.theme.header_style()),
@@ -638,7 +651,7 @@ impl<'a> UrlContainer<'a> {
         
         // Add separator line
         let separator = "─".repeat(total_width);
-        lines.push(Line::from(separator));
+        all_lines.push(Line::from(separator));
         
         // First, add all active options
         for (idx, option) in self.app.current_command.options.iter().enumerate() {
@@ -692,15 +705,13 @@ impl<'a> UrlContainer<'a> {
                 None => "",
             };
             
-            lines.push(Line::from(vec![
-                Span::styled(status, style),
-                Span::raw(" | "),
-                Span::styled(flag, style),
-                Span::raw(" | "),
-                Span::styled(value_display_string.clone(), style),
-                Span::raw(" | "),
-                Span::styled(description, style),
-                Span::styled(status_indicator, if is_editing { self.theme.editing_style() } else { self.theme.selected_style() }),
+            // Use the same format_column function for active options to maintain even spacing
+            all_lines.push(Line::from(vec![
+                Span::styled(format_column(status, column_width), style),
+                Span::styled(format_column(flag, column_width), style),
+                Span::styled(format_column(&value_display_string, column_width), style),
+                Span::styled(format!("{}{}", format_column(description, column_width.saturating_sub(status_indicator.len())), status_indicator),
+                    if is_editing { self.theme.editing_style() } else { style }),
             ]));
         }
         
@@ -749,7 +760,7 @@ impl<'a> UrlContainer<'a> {
             // Add status indicator for selection
             let status_indicator = if is_selected { " " } else { "" };
             
-            lines.push(Line::from(vec![
+            all_lines.push(Line::from(vec![
                 Span::styled(format_column(status, column_width), style),
                 Span::styled(format_column(flag, column_width), if is_selected { style } else { Style::default().fg(self.theme.primary) }),
                 Span::styled(format_column(&value_text_string, column_width), if is_selected { style } else { Style::default().fg(self.theme.secondary) }),
@@ -757,8 +768,63 @@ impl<'a> UrlContainer<'a> {
             ]));
         }
         
-        let text = Text::from(lines);
-        let paragraph = Paragraph::new(text).block(block);
+        // Calculate the maximum number of visible rows
+        let inner_area = block.inner(area);
+        let max_visible_rows = inner_area.height as usize;
+        
+        // Ensure the selected item is visible by adjusting scroll offset if needed
+        if let Some(idx) = selected_idx {
+            // Header row + separator = 2 rows
+            let header_rows = 2;
+            
+            // If selected index is below visible area, scroll down
+            if idx >= scroll_offset + max_visible_rows - header_rows {
+                // This is handled in the navigate_field_down method
+            }
+            
+            // If selected index is above visible area, scroll up
+            if idx < scroll_offset {
+                // This is handled in the navigate_field_up method
+            }
+        }
+        
+        // Apply scrolling: slice the lines to show only the visible portion
+        let total_lines = all_lines.len();
+        let visible_end = (scroll_offset + max_visible_rows).min(total_lines);
+        let visible_lines = if scroll_offset < total_lines {
+            all_lines[scroll_offset..visible_end].to_vec()
+        } else {
+            // Fallback if scroll offset is somehow beyond total lines
+            all_lines[0..all_lines.len().min(max_visible_rows)].to_vec()
+        };
+        
+        // Add scroll indicator at the bottom if there are more lines below
+        let has_more_below = visible_end < total_lines;
+        let scroll_text = Text::from(visible_lines);
+        
+        // Create the paragraph with scrolling
+        let paragraph = Paragraph::new(scroll_text)
+            .block(block)
+            .scroll((0, 0)); // We're handling scrolling manually
+        
         frame.render_widget(paragraph, area);
+        
+        // Add a scroll indicator at the bottom if needed
+        if has_more_below && inner_area.height > 0 {
+            let scroll_indicator = "↓ More";
+            let scroll_style = Style::default().fg(self.theme.primary);
+            
+            // Position at the bottom right of the inner area
+            let indicator_width = scroll_indicator.len() as u16;
+            let indicator_x = inner_area.x + inner_area.width.saturating_sub(indicator_width);
+            let indicator_y = inner_area.y + inner_area.height.saturating_sub(1);
+            
+            if indicator_x < inner_area.x + inner_area.width && indicator_y < inner_area.y + inner_area.height {
+                frame.render_widget(
+                    Paragraph::new(Text::from(Span::styled(scroll_indicator, scroll_style))),
+                    Rect::new(indicator_x, indicator_y, indicator_width, 1)
+                );
+            }
+        }
     }
 }
