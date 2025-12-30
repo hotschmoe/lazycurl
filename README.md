@@ -17,7 +17,7 @@ TVRL (Terminal Visual Curl) is a terminal-based UI application that provides a v
 ### Prerequisites
 
 - Rust 1.82 or later (legacy implementation)
-- Zig 0.15.2 or later (ongoing port that targets libvaxis)
+- Zig 0.15.1 (ongoing port that targets libvaxis main)
 - curl installed on your system
 
 ### Zig Prototype (WIP)
@@ -27,7 +27,7 @@ TVRL (Terminal Visual Curl) is a terminal-based UI application that provides a v
    git clone https://github.com/yourusername/tvrl.git
    cd tvrl
    ```
-2. Fetch third-party Zig dependencies (libvaxis):
+2. Fetch third-party Zig dependencies (libvaxis main):
    ```
    zig build --fetch
    ```
