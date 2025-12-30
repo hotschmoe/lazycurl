@@ -55,7 +55,7 @@ pub fn main() !void {
         if (now_ms < next_frame_ms) {
             std.Thread.sleep((next_frame_ms - now_ms) * std.time.ns_per_ms);
         }
-        next_frame_ms = @intCast(std.time.milliTimestamp()) + tick_ms;
+        next_frame_ms = @as(u64, @intCast(std.time.milliTimestamp())) + tick_ms;
 
         loop.queue.lock();
         while (loop.queue.drain()) |event| {
@@ -85,7 +85,7 @@ fn handleEvent(
         },
         .key_press => |key| {
             if (key.matchShortcut('q', .{ .ctrl = true })) {
-                *running = false;
+                running.* = false;
                 return;
             }
 
@@ -98,7 +98,7 @@ fn handleEvent(
             if (toKeyInput(key)) |input| {
                 const should_exit = try app.handleKey(input);
                 if (should_exit) {
-                    *running = false;
+                running.* = false;
                 }
             }
         },
@@ -144,7 +144,7 @@ fn render(
     try vx.render(tty);
 }
 
-fn execStatus(allocator: std.mem.Allocator, runtime: *app_mod.Runtime) []u8 {
+fn execStatus(allocator: std.mem.Allocator, runtime: *app_mod.Runtime) []const u8 {
     if (runtime.active_job != null) {
         return std.fmt.allocPrint(allocator, "Execution: running | stdout {d} bytes | stderr {d} bytes", .{
             runtime.stream_stdout.items.len,

@@ -62,7 +62,7 @@ pub const CommandExecutor = struct {
 
         child.spawn() catch return ExecutionError.SpawnFailed;
 
-        const poller = std.Io.poll(self.allocator, enum { stdout, stderr }, .{
+        const poller = std.Io.poll(self.allocator, Stream, .{
             .stdout = child.stdout.?,
             .stderr = child.stderr.?,
         });
@@ -96,7 +96,7 @@ pub const ExecutionJob = struct {
     command: []u8,
     argv_storage: std.ArrayList([]const u8),
     child: std.process.Child,
-    poller: std.Io.Poller(enum { stdout, stderr }),
+    poller: std.Io.Poller(Stream),
     stdout: std.ArrayList(u8),
     stderr: std.ArrayList(u8),
     start: ?std.time.Instant,
@@ -170,10 +170,7 @@ pub const ExecutionJob = struct {
     }
 
     fn flushStream(self: *ExecutionJob, stream: Stream, sink: ?OutputSink) void {
-        const reader = self.poller.reader(switch (stream) {
-            .stdout => .stdout,
-            .stderr => .stderr,
-        });
+        const reader = self.poller.reader(stream);
         const buffered = reader.buffered();
         if (buffered.len == 0) return;
 

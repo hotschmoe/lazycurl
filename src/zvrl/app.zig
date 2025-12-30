@@ -22,7 +22,7 @@ pub const Runtime = struct {
         };
     }
 
-    pub fn deinit(self: *App) void {
+    pub fn deinit(self: *Runtime) void {
         if (self.active_job) |*job| {
             job.deinit();
         }
@@ -33,14 +33,14 @@ pub const Runtime = struct {
         self.stream_stderr.deinit(self.allocator);
     }
 
-    pub fn startExecution(self: *App, command: []const u8) !void {
+    pub fn startExecution(self: *Runtime, command: []const u8) !void {
         if (self.active_job != null) return error.ExecutionInProgress;
         self.clearStreamBuffers();
         self.clearLastResult();
         self.active_job = try self.executor.start(command);
     }
 
-    pub fn tick(self: *App) !void {
+    pub fn tick(self: *Runtime) !void {
         if (self.active_job) |*job| {
             const sink = execution.executor.OutputSink{
                 .ctx = self,
@@ -56,12 +56,12 @@ pub const Runtime = struct {
         }
     }
 
-    fn clearStreamBuffers(self: *App) void {
+    fn clearStreamBuffers(self: *Runtime) void {
         self.stream_stdout.clearRetainingCapacity();
         self.stream_stderr.clearRetainingCapacity();
     }
 
-    fn clearLastResult(self: *App) void {
+    fn clearLastResult(self: *Runtime) void {
         if (self.last_result) |*result| {
             result.deinit(self.allocator);
             self.last_result = null;
@@ -199,9 +199,16 @@ pub const App = struct {
     }
 
     fn handleNormalKey(self: *App, input: KeyInput) !bool {
-        if (input.mods.ctrl and input.code == .{ .char = 'q' }) {
-            self.state = .exiting;
-            return true;
+        if (input.mods.ctrl) {
+            switch (input.code) {
+                .char => |ch| {
+                    if (ch == 'q') {
+                        self.state = .exiting;
+                        return true;
+                    }
+                },
+                else => {},
+            }
         }
 
         switch (input.code) {
