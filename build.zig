@@ -16,12 +16,19 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    const execution_mod = b.addModule("zvrl_execution", .{
+        .root_source_file = b.path("src/zvrl/execution/mod.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
     const app_mod = b.addModule("zvrl_app", .{
         .root_source_file = b.path("src/zvrl/app.zig"),
         .target = target,
         .optimize = optimize,
         .imports = &.{
             .{ .name = "zvrl_core", .module = core_mod },
+            .{ .name = "zvrl_execution", .module = execution_mod },
             .{ .name = "vaxis", .module = vaxis_mod },
         },
     });
@@ -79,6 +86,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
             .imports = &.{
                 .{ .name = "zvrl_core", .module = core_mod },
+                .{ .name = "zvrl_execution", .module = execution_mod },
                 .{ .name = "vaxis", .module = vaxis_mod },
             },
         }),

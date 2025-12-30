@@ -131,6 +131,9 @@ pub const ExecutionJob = struct {
             break :blk end.since(start);
         } else 0;
 
+        const command_owned = self.command;
+        self.command = &.{};
+
         var error_message: ?[]u8 = null;
         var exit_code: ?u8 = null;
         if (self.term) |term| {
@@ -157,7 +160,7 @@ pub const ExecutionJob = struct {
         }
 
         return .{
-            .command = self.command,
+            .command = command_owned,
             .exit_code = exit_code,
             .stdout = try self.stdout.toOwnedSlice(self.allocator),
             .stderr = try self.stderr.toOwnedSlice(self.allocator),
@@ -191,7 +194,9 @@ pub const ExecutionJob = struct {
         self.stdout.deinit(self.allocator);
         self.stderr.deinit(self.allocator);
         self.argv_storage.deinit(self.allocator);
-        self.allocator.free(self.command);
+        if (self.command.len != 0) {
+            self.allocator.free(self.command);
+        }
     }
 };
 
