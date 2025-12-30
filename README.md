@@ -16,12 +16,29 @@ TVRL (Terminal Visual Curl) is a terminal-based UI application that provides a v
 
 ### Prerequisites
 
-- Rust 1.82 or later
+- Rust 1.82 or later (legacy implementation)
+- Zig 0.15.2 or later (ongoing port that targets libvaxis)
 - curl installed on your system
 
-### Building from Source
+### Zig Prototype (WIP)
 
 1. Clone the repository:
+   ```
+   git clone https://github.com/yourusername/tvrl.git
+   cd tvrl
+   ```
+2. Fetch third-party Zig dependencies (libvaxis):
+   ```
+   zig build --fetch
+   ```
+3. Build and run the Zig executable:
+   ```
+   zig build run
+   ```
+
+### Legacy Rust Build
+
+1. Clone the repository (if you have not already):
    ```
    git clone https://github.com/yourusername/tvrl.git
    cd tvrl
@@ -39,34 +56,40 @@ TVRL (Terminal Visual Curl) is a terminal-based UI application that provides a v
 
 ## Development
 
-For development, you can use the included development script that automatically rebuilds and restarts the application when you make changes:
+For development, you can use the included helper script to run common Zig tasks:
 
 ```bash
-./dev.sh
+# Run the Zig prototype
+./dev.sh run
+
+# Execute the Zig test suite
+./dev.sh test
+
+# Format Zig sources
+./dev.sh fmt
+
+# (Re)fetch dependencies such as libvaxis
+./dev.sh fetch
 ```
 
-This uses `cargo-watch` to monitor file changes and automatically restart the application. The script will:
-- Watch for changes in your source files
-- Automatically rebuild the project when changes are detected
-- Restart the application with the new changes
-- Display build errors if compilation fails
-
-To stop the development server, press `Ctrl+C`.
+The legacy Rust workflow is still available via Cargo commands if you need to reference the existing application until the port is complete.
 
 ### Manual Development Commands
 
 If you prefer to run commands manually:
 
 ```bash
-# Install cargo-watch (if not already installed)
-cargo install cargo-watch
+# Build and run the Zig prototype
+zig build run
 
-# Run with automatic restart on file changes
-cargo watch -x run
+# Run tests
+zig build test
 
-# Or run normally for a single execution
-cargo run
+# Format all Zig sources
+zig fmt src
 ```
+
+Legacy Rust commands remain available (`cargo run`, `cargo test`, etc.) for reference until the full UI is ported.
 
 ## Usage
 
@@ -92,7 +115,7 @@ Navigate through the application using keyboard shortcuts. See [SHORTCUTS.md](SH
 
 TVRL follows a modular architecture with clear separation between:
 
-1. **User Interface Layer**: Built with ratatui
+1. **User Interface Layer**: Built with ratatui (Rust) today, with a libvaxis-based Zig port under active development
 2. **Command Builder Layer**: Generates curl commands based on user input
 3. **Command Execution Layer**: Executes curl commands and captures output
 4. **Data Persistence Layer**: Manages storage of templates and environments

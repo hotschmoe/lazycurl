@@ -1,0 +1,13 @@
+{
+  "lockfileVersion": 1,
+  "workspaces": {
+    "": {
+      "dependencies": {
+        "help": "^3.0.2",
+      },
+    },
+  },
+  "packages": {
+    "help": ["help@3.0.2", "", {}, "sha512-jDd0MU+9xzvOQRC6CIzdjvb+agCvpzQY/Fp11quDnugDO4QQzh134EsLkRQMvFIJBleFkvnXagHFm4MTefkkpA=="],
+  }
+}
