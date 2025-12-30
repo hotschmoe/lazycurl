@@ -2,3 +2,4 @@
 target
 
 .zig-cache
+zig-aarch64-macos-0.15.1/*

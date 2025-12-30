@@ -7,7 +7,7 @@ pub fn run(allocator: std.mem.Allocator) !void {
     const summary = try core.describe(allocator);
     defer allocator.free(summary);
 
-    var stdout = std.io.getStdOut().writer();
+    var stdout = std.fs.File.stdout().deprecatedWriter();
     try stdout.print(
         "TVRL Zig workspace initialized.\n{s}\n",
         .{summary},

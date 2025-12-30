@@ -15,6 +15,11 @@ Any arguments after `--` are forwarded to `zig build run`.
 EOF
 }
 
+zig_bin="./zig-aarch64-macos-0.15.1/zig"
+if [[ ! -x "$zig_bin" ]]; then
+    zig_bin="zig"
+fi
+
 cmd="${1:-run}"
 if [ $# -gt 0 ]; then
     shift
@@ -24,16 +29,16 @@ case "$cmd" in
         if [[ "${1:-}" == "--" ]]; then
             shift
         fi
-        zig build run -- "$@"
+        "$zig_bin" build run -- "$@"
         ;;
     test)
-        zig build test
+        "$zig_bin" build test
         ;;
     fmt)
-        zig build fmt
+        "$zig_bin" build fmt
         ;;
     fetch)
-        zig build --fetch
+        "$zig_bin" build --fetch
         ;;
     *)
         usage
