@@ -53,6 +53,16 @@ pub fn build(b: *std.Build) void {
         },
     });
 
+    const ui_mod = b.addModule("zvrl_ui", .{
+        .root_source_file = b.path("src/zvrl/ui/mod.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "zvrl_app", .module = app_mod },
+            .{ .name = "vaxis", .module = vaxis_mod },
+        },
+    });
+
     _ = b.addModule("zvrl", .{
         .root_source_file = b.path("src/root.zig"),
         .target = target,
@@ -70,6 +80,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
             .imports = &.{
                 .{ .name = "zvrl_app", .module = app_mod },
+                .{ .name = "zvrl_ui", .module = ui_mod },
                 .{ .name = "vaxis", .module = vaxis_mod },
             },
         }),

@@ -1,6 +1,7 @@
 const std = @import("std");
 const vaxis = @import("vaxis");
 const app_mod = @import("zvrl_app");
+const ui = @import("zvrl_ui");
 
 const Event = vaxis.Event;
 
@@ -113,82 +114,11 @@ fn render(
     app: *app_mod.App,
     runtime: *app_mod.Runtime,
 ) !void {
-    var arena = std.heap.ArenaAllocator.init(allocator);
-    defer arena.deinit();
-    const arena_alloc = arena.allocator();
-
     const win = vx.window();
     win.clear();
-
-    drawLine(win, 0, "TVRL Zig Harness (Step 8) - Ctrl+Q to quit | Ctrl+R/F5 to run");
-
-    const state_line = try std.fmt.allocPrint(
-        arena_alloc,
-        "State: {s} | Tab: {s} | Cursor: {s}",
-        .{
-            stateLabel(app.state),
-            tabLabel(app.ui.active_tab),
-            if (app.ui.cursor_visible) "on" else "off",
-        },
-    );
-    drawLine(win, 2, state_line);
-
-    const command = try app.executeCommand();
-    defer app.allocator.free(command);
-    const cmd_line = try std.fmt.allocPrint(arena_alloc, "Command: {s}", .{command});
-    drawWrapped(win, 4, cmd_line);
-
-    const exec_status = execStatus(arena_alloc, runtime);
-    drawLine(win, 8, exec_status);
-
+    _ = allocator;
+    try ui.render(win, app, runtime);
     try vx.render(tty);
-}
-
-fn execStatus(allocator: std.mem.Allocator, runtime: *app_mod.Runtime) []const u8 {
-    if (runtime.active_job != null) {
-        return std.fmt.allocPrint(allocator, "Execution: running | stdout {d} bytes | stderr {d} bytes", .{
-            runtime.stream_stdout.items.len,
-            runtime.stream_stderr.items.len,
-        }) catch "Execution: running";
-    }
-
-    if (runtime.last_result) |*result| {
-        return std.fmt.allocPrint(allocator, "Execution: exit {d} | stdout {d} bytes | stderr {d} bytes", .{
-            result.exit_code orelse 0,
-            result.stdout.len,
-            result.stderr.len,
-        }) catch "Execution: complete";
-    }
-
-    return "Execution: idle";
-}
-
-fn drawLine(win: vaxis.Window, row: u16, text: []const u8) void {
-    const segments = [_]vaxis.Segment{.{ .text = text }};
-    _ = win.print(&segments, .{ .row_offset = row, .wrap = .none });
-}
-
-fn drawWrapped(win: vaxis.Window, start_row: u16, text: []const u8) void {
-    const segments = [_]vaxis.Segment{.{ .text = text }};
-    _ = win.print(&segments, .{ .row_offset = start_row, .wrap = .grapheme });
-}
-
-fn stateLabel(state: app_mod.AppState) []const u8 {
-    return switch (state) {
-        .normal => "normal",
-        .editing => "editing",
-        .method_dropdown => "method",
-        .exiting => "exiting",
-    };
-}
-
-fn tabLabel(tab: app_mod.Tab) []const u8 {
-    return switch (tab) {
-        .url => "url",
-        .headers => "headers",
-        .body => "body",
-        .options => "options",
-    };
 }
 
 fn toKeyInput(key: vaxis.Key) ?app_mod.KeyInput {
