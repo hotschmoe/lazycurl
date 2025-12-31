@@ -73,7 +73,16 @@ fn renderUrlInput(win: vaxis.Window, app: *app_mod.App, theme: theme_mod.Theme) 
         cursor_style.reverse = true;
         drawInputWithCursorPrefix(win, 1, app.ui.edit_input.slice(), app.ui.edit_input.cursor, url_style, cursor_style, app.ui.cursor_visible, "");
     } else {
-        drawUrlValue(win, 1, app.current_command.url, url_style, theme.accent);
+        drawInputWithCursorPrefix(
+            win,
+            1,
+            app.current_command.url,
+            app.current_command.url.len,
+            url_style,
+            url_style,
+            false,
+            "",
+        );
     }
 }
 
@@ -306,10 +315,27 @@ fn drawInputWithCursorPrefix(
     prefix: []const u8,
 ) void {
     if (row >= win.height) return;
+    const prefix_len: usize = prefix.len;
+    const win_width: usize = win.width;
+    if (win_width <= prefix_len) {
+        const clipped = prefix[0..@min(prefix_len, win_width)];
+        const segments = [_]vaxis.Segment{.{ .text = clipped, .style = style }};
+        _ = win.print(&segments, .{ .row_offset = row, .wrap = .none });
+        return;
+    }
+
+    const available = win_width - prefix_len;
     const safe_cursor = @min(cursor, value.len);
-    const before = value[0..safe_cursor];
-    const cursor_char = if (safe_cursor < value.len) value[safe_cursor .. safe_cursor + 1] else " ";
-    const after = if (safe_cursor < value.len) value[safe_cursor + 1 ..] else "";
+    var start: usize = 0;
+    if (safe_cursor >= available) {
+        start = safe_cursor - available + 1;
+    }
+    const end = @min(value.len, start + available);
+    const visible = value[start..end];
+    const cursor_pos = safe_cursor - start;
+    const before = visible[0..@min(cursor_pos, visible.len)];
+    const cursor_char = if (cursor_pos < visible.len) visible[cursor_pos .. cursor_pos + 1] else " ";
+    const after = if (cursor_pos < visible.len) visible[cursor_pos + 1 ..] else "";
 
     var segments: [4]vaxis.Segment = .{
         .{ .text = prefix, .style = style },

@@ -21,13 +21,29 @@ pub fn render(
     const main_h: u16 = if (remaining > 0) @min(remaining, proposed_main) else 0;
     const output_h: u16 = if (remaining > main_h) remaining - main_h else 0;
 
-    const templates_w: u16 = @min(width, @max(@as(u16, 20), width / 5));
+    const min_url_w: u16 = 20;
+    var templates_w: u16 = @min(width, @max(@as(u16, 20), width / 5));
     var method_w: u16 = 15;
-    if (width <= templates_w + method_w + 8) {
-        const available = if (width > templates_w) width - templates_w else 0;
-        method_w = @min(method_w, available);
+
+    if (width < templates_w + method_w + min_url_w) {
+        const needed = templates_w + method_w + min_url_w - width;
+        if (templates_w > 12) {
+            const shrink = @min(needed, templates_w - 12);
+            templates_w -= shrink;
+        }
     }
-    const url_w: u16 = if (width > templates_w + method_w) width - templates_w - method_w else 0;
+    if (width < templates_w + method_w + min_url_w) {
+        const needed = templates_w + method_w + min_url_w - width;
+        if (method_w > 10) {
+            const shrink = @min(needed, method_w - 10);
+            method_w -= shrink;
+        }
+    }
+
+    const url_w: u16 = if (width > templates_w + method_w)
+        width - templates_w - method_w
+    else
+        0;
 
     const status_win = win.child(.{
         .x_off = 0,
