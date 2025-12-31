@@ -139,6 +139,17 @@ fn toKeyInput(key: vaxis.Key) ?app_mod.KeyInput {
     if (key.codepoint == vaxis.Key.end) return .{ .code = .end, .mods = modsFromKey(key) };
     if (key.codepoint == vaxis.Key.f2) return .{ .code = .f2, .mods = modsFromKey(key) };
 
+    if (!key.mods.ctrl) {
+        if (key.text) |text| {
+            if (text.len == 1) {
+                const byte: u8 = text[0];
+                if (std.ascii.isPrint(byte)) {
+                    return .{ .code = .{ .char = byte }, .mods = modsFromKey(key) };
+                }
+            }
+        }
+    }
+
     const codepoint: u21 = if (key.mods.ctrl and key.base_layout_codepoint != null)
         key.base_layout_codepoint.?
     else

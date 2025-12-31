@@ -376,13 +376,21 @@ pub const App = struct {
                 }
             },
             .body => {
-                self.state = .editing;
-                self.editing_field = .body;
-                const content = if (self.current_command.body) |body| switch (body) {
-                    .raw => |payload| payload,
-                    else => "",
-                } else "";
-                try self.ui.body_input.reset(content);
+                switch (self.ui.selected_field) {
+                    .body => |field| switch (field) {
+                        .content => {
+                            self.state = .editing;
+                            self.editing_field = .body;
+                            const content = if (self.current_command.body) |body| switch (body) {
+                                .raw => |payload| payload,
+                                else => "",
+                            } else "";
+                            try self.ui.body_input.reset(content);
+                        },
+                        .type => {},
+                    },
+                    else => {},
+                }
             },
             .options => {
                 self.state = .editing;

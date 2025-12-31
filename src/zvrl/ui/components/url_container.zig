@@ -218,13 +218,13 @@ fn renderBody(
 
     const is_editing = app.state == .editing and app.editing_field != null and app.editing_field.? == .body;
     if (is_editing) {
-        renderBodyInput(win, 3, &app.ui.body_input, content_style, theme.muted, app.ui.cursor_visible);
+        renderBodyInput(win, 3, &app.ui.body_input, content_style, theme.accent, theme.muted, app.ui.cursor_visible);
         return;
     }
 
     switch (app.current_command.body orelse .none) {
         .none => drawLine(win, 3, "No body", theme.muted),
-        .raw => |payload| renderBodyLines(win, 3, payload, content_style, theme.muted),
+        .raw => |payload| renderBodyLines(win, 3, payload, content_style, theme.accent, theme.muted),
         .form_data => |list| {
             var row: u16 = 3;
             for (list.items) |item| {
@@ -247,6 +247,7 @@ fn renderBodyLines(
     start_row: u16,
     payload: []const u8,
     style: vaxis.Style,
+    highlight_style: vaxis.Style,
     empty_style: vaxis.Style,
 ) void {
     if (payload.len == 0) {
@@ -258,7 +259,8 @@ fn renderBodyLines(
     var it = std.mem.splitScalar(u8, payload, '\n');
     while (it.next()) |line| {
         if (row >= win.height) break;
-        drawLine(win, row, line, style);
+        const line_style = if (isHighlightLine(line)) highlight_style else style;
+        drawLine(win, row, line, line_style);
         row += 1;
     }
 }
@@ -357,23 +359,36 @@ fn renderBodyInput(
     start_row: u16,
     input: *const text_input.TextInput,
     style: vaxis.Style,
+    highlight_style: vaxis.Style,
     empty_style: vaxis.Style,
     cursor_visible: bool,
 ) void {
     _ = empty_style;
+    const max_lines: usize = if (win.height > start_row) win.height - start_row else 0;
+    if (max_lines == 0) return;
+
     var row = start_row;
     const text = input.slice();
     const cursor = input.cursorPosition();
+    var start_line: usize = 0;
+    if (cursor.row >= max_lines) {
+        start_line = cursor.row - max_lines + 1;
+    }
     var line_index: usize = 0;
     var it = std.mem.splitScalar(u8, text, '\n');
     while (it.next()) |line| {
         if (row >= win.height) break;
+        if (line_index < start_line) {
+            line_index += 1;
+            continue;
+        }
         if (line_index == cursor.row) {
             var cursor_style = style;
             cursor_style.reverse = true;
             drawInputWithCursorPrefix(win, row, line, cursor.col, style, cursor_style, cursor_visible, "");
         } else {
-            drawLine(win, row, line, style);
+            const line_style = if (isHighlightLine(line)) highlight_style else style;
+            drawLine(win, row, line, line_style);
         }
         row += 1;
         line_index += 1;
@@ -383,6 +398,14 @@ fn renderBodyInput(
         cursor_style.reverse = true;
         drawInputWithCursorPrefix(win, row, "", 0, style, cursor_style, cursor_visible, "");
     }
+}
+
+fn isHighlightLine(line: []const u8) bool {
+    if (line.len == 0) return false;
+    return switch (line[0]) {
+        '{', '}', '[', ']' => true,
+        else => false,
+    };
 }
 
 fn isUrlSelected(app: *app_mod.App) bool {
