@@ -16,11 +16,10 @@ TVRL (Terminal Visual Curl) is a terminal-based UI application that provides a v
 
 ### Prerequisites
 
-- Rust 1.82 or later (legacy implementation)
-- Zig 0.15.1 (ongoing port that targets libvaxis main)
+- Zig 0.15.1 (libvaxis main)
 - curl installed on your system
 
-### Zig Prototype (WIP)
+### Zig Build
 
 1. Clone the repository:
    ```
@@ -34,24 +33,6 @@ TVRL (Terminal Visual Curl) is a terminal-based UI application that provides a v
 3. Build and run the Zig executable:
    ```
    zig build run
-   ```
-
-### Legacy Rust Build
-
-1. Clone the repository (if you have not already):
-   ```
-   git clone https://github.com/yourusername/tvrl.git
-   cd tvrl
-   ```
-
-2. Build the project:
-   ```
-   cargo build --release
-   ```
-
-3. Run the application:
-   ```
-   cargo run --release
    ```
 
 ## Development
@@ -72,8 +53,6 @@ For development, you can use the included helper script to run common Zig tasks:
 ./dev.sh fetch
 ```
 
-The legacy Rust workflow is still available via Cargo commands if you need to reference the existing application until the port is complete.
-
 ### Manual Development Commands
 
 If you prefer to run commands manually:
@@ -89,7 +68,6 @@ zig build test
 zig fmt src
 ```
 
-Legacy Rust commands remain available (`cargo run`, `cargo test`, etc.) for reference until the full UI is ported.
 
 ## Usage
 
@@ -130,7 +108,7 @@ Navigate through the application using the keyboard shortcuts below.
 
 TVRL follows a modular architecture with clear separation between:
 
-1. **User Interface Layer**: Built with ratatui (Rust) today, with a libvaxis-based Zig port under active development
+1. **User Interface Layer**: Built with libvaxis in Zig
 2. **Command Builder Layer**: Generates curl commands based on user input
 3. **Command Execution Layer**: Executes curl commands and captures output
 4. **Data Persistence Layer**: Manages storage of templates and environments
