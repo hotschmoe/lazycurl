@@ -16,8 +16,14 @@ pub fn render(
 
     if (height == 0 or width == 0) return;
 
-    const url_h: u16 = @min(@as(u16, 3), height);
-    const tabs_h: u16 = if (height > url_h) @min(@as(u16, 2), height - url_h) else 0;
+    var url_h: u16 = @min(@as(u16, 4), height);
+    var tabs_h: u16 = if (height > url_h) @min(@as(u16, 3), height - url_h) else 0;
+    if (height < url_h) {
+        url_h = height;
+        tabs_h = 0;
+    } else if (height < url_h + tabs_h) {
+        tabs_h = height - url_h;
+    }
     const content_h: u16 = if (height > url_h + tabs_h) height - url_h - tabs_h else 0;
 
     if (url_h > 0) {
