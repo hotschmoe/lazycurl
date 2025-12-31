@@ -85,7 +85,7 @@ fn handleEvent(
             vx.queueRefresh();
         },
         .key_press => |key| {
-            if (key.matchShortcut('q', .{ .ctrl = true })) {
+            if (key.matchShortcut('x', .{ .ctrl = true })) {
                 running.* = false;
                 return;
             }

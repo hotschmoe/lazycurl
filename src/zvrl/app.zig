@@ -218,7 +218,7 @@ pub const App = struct {
         if (input.mods.ctrl) {
             switch (input.code) {
                 .char => |ch| {
-                    if (ch == 'q') {
+                    if (ch == 'x') {
                         self.state = .exiting;
                         return true;
                     }
