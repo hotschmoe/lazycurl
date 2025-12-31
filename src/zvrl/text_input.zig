@@ -99,6 +99,7 @@ pub const TextInput = struct {
 
 fn lineStart(buf: []const u8, idx: usize) usize {
     if (buf.len == 0) return 0;
+    if (idx == 0) return 0;
     var i = if (idx > 0) idx - 1 else 0;
     while (true) {
         if (buf[i] == '\n') return i + 1;
