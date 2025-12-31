@@ -65,6 +65,12 @@ pub fn main() !void {
         loop.queue.unlock();
 
         try runtime.tick();
+        if (runtime.last_result != null and !runtime.last_result_handled) {
+            if (runtime.last_result.?.exit_code != null and runtime.last_result.?.exit_code.? == 0) {
+                _ = app.addHistoryFromCurrent() catch {};
+            }
+            runtime.last_result_handled = true;
+        }
         app.toggleCursor();
         try render(allocator, &vx, tty.writer(), &app, &runtime);
     }

@@ -11,6 +11,7 @@ pub const Runtime = struct {
     executor: execution.executor.CommandExecutor,
     active_job: ?execution.executor.ExecutionJob = null,
     last_result: ?execution.executor.ExecutionResult = null,
+    last_result_handled: bool = true,
     stream_stdout: std.ArrayList(u8),
     stream_stderr: std.ArrayList(u8),
 
@@ -39,6 +40,7 @@ pub const Runtime = struct {
         self.clearStreamBuffers();
         self.clearLastResult();
         self.active_job = try self.executor.start(command);
+        self.last_result_handled = false;
     }
 
     pub fn tick(self: *Runtime) !void {
@@ -53,6 +55,7 @@ pub const Runtime = struct {
                 self.last_result = result;
                 job.deinit();
                 self.active_job = null;
+                self.last_result_handled = false;
             }
         }
     }
@@ -396,6 +399,11 @@ pub const App = struct {
         return command_builder.builder.CommandBuilder.build(allocator, &self.current_command, environment);
     }
 
+    pub fn addHistoryFromCurrent(self: *App) !void {
+        const cloned = try cloneCommand(self.allocator, &self.id_generator, &self.current_command);
+        try self.history.append(self.allocator, cloned);
+    }
+
     fn currentEnvironment(self: *App) *const core.models.environment.Environment {
         std.debug.assert(self.environments.items.len > 0);
         if (self.current_environment_index >= self.environments.items.len) {
@@ -537,16 +545,25 @@ pub const App = struct {
         if (self.ui.left_panel == null) return;
         switch (self.ui.left_panel.?) {
             .templates => if (self.ui.selected_template) |idx| {
-                if (idx > 0) self.ui.selected_template = idx - 1;
-                self.ensureScroll(&self.ui.templates_scroll, self.ui.selected_template, self.templates.items.len, 6);
+                if (idx > 0) {
+                    self.ui.selected_template = idx - 1;
+                } else if (self.ui.environments_expanded and self.environments.items.len > 0) {
+                    self.focusLeftPanel(.environments);
+                    self.ui.selected_environment = self.environments.items.len - 1;
+                }
             },
             .environments => if (self.ui.selected_environment) |idx| {
-                if (idx > 0) self.ui.selected_environment = idx - 1;
-                self.ensureScroll(&self.ui.environments_scroll, self.ui.selected_environment, self.environments.items.len, 4);
+                if (idx > 0) {
+                    self.ui.selected_environment = idx - 1;
+                } else if (self.ui.history_expanded and self.history.items.len > 0) {
+                    self.focusLeftPanel(.history);
+                    self.ui.selected_history = self.history.items.len - 1;
+                }
             },
             .history => if (self.ui.selected_history) |idx| {
-                if (idx > 0) self.ui.selected_history = idx - 1;
-                self.ensureScroll(&self.ui.history_scroll, self.ui.selected_history, self.history.items.len, 4);
+                if (idx > 0) {
+                    self.ui.selected_history = idx - 1;
+                }
             },
         }
     }
@@ -555,37 +572,27 @@ pub const App = struct {
         if (self.ui.left_panel == null) return;
         switch (self.ui.left_panel.?) {
             .templates => if (self.ui.selected_template) |idx| {
-                if (idx + 1 < self.templates.items.len) self.ui.selected_template = idx + 1;
-                self.ensureScroll(&self.ui.templates_scroll, self.ui.selected_template, self.templates.items.len, 6);
+                if (idx + 1 < self.templates.items.len) {
+                    self.ui.selected_template = idx + 1;
+                }
             },
             .environments => if (self.ui.selected_environment) |idx| {
-                if (idx + 1 < self.environments.items.len) self.ui.selected_environment = idx + 1;
-                self.ensureScroll(&self.ui.environments_scroll, self.ui.selected_environment, self.environments.items.len, 4);
+                if (idx + 1 < self.environments.items.len) {
+                    self.ui.selected_environment = idx + 1;
+                } else if (self.ui.templates_expanded and self.templates.items.len > 0) {
+                    self.focusLeftPanel(.templates);
+                    self.ui.selected_template = 0;
+                }
             },
             .history => if (self.ui.selected_history) |idx| {
-                if (idx + 1 < self.history.items.len) self.ui.selected_history = idx + 1;
-                self.ensureScroll(&self.ui.history_scroll, self.ui.selected_history, self.history.items.len, 4);
+                if (idx + 1 < self.history.items.len) {
+                    self.ui.selected_history = idx + 1;
+                } else if (self.ui.environments_expanded and self.environments.items.len > 0) {
+                    self.focusLeftPanel(.environments);
+                    self.ui.selected_environment = 0;
+                }
             },
         }
-    }
-
-    fn ensureScroll(
-        self: *App,
-        scroll: *usize,
-        selection: ?usize,
-        total: usize,
-        view: usize,
-    ) void {
-        _ = self;
-        if (total == 0 or view == 0) {
-            scroll.* = 0;
-            return;
-        }
-        const idx = selection orelse return;
-        if (idx < scroll.*) scroll.* = idx;
-        if (idx >= scroll.* + view) scroll.* = idx - view + 1;
-        const max_scroll = if (total > view) total - view else 0;
-        if (scroll.* > max_scroll) scroll.* = max_scroll;
     }
 
     fn navigateTemplateUp(self: *App) void {
