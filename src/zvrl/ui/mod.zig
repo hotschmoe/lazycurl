@@ -66,24 +66,29 @@ pub fn render(
 
     const env_border = if (app.ui.left_panel != null and app.ui.left_panel.? == .environments) theme.accent else theme.border;
     const env_h: u16 = if (total_remaining > 6) 6 else total_remaining;
-    const env_win = win.child(.{
-        .x_off = 0,
-        .y_off = status_h,
-        .width = left_w,
-        .height = env_h,
-        .border = .{ .where = .all, .style = env_border },
-    });
-    components.environment_panel.render(allocator, env_win, app, theme);
+    if (left_w > 0 and env_h > 0) {
+        const env_win = win.child(.{
+            .x_off = 0,
+            .y_off = status_h,
+            .width = left_w,
+            .height = env_h,
+            .border = .{ .where = .all, .style = env_border },
+        });
+        components.environment_panel.render(allocator, env_win, app, theme);
+    }
 
     const templates_border = if (app.ui.left_panel != null and app.ui.left_panel.? == .templates) theme.accent else theme.border;
-    const templates_win = win.child(.{
-        .x_off = 0,
-        .y_off = status_h + env_h,
-        .width = left_w,
-        .height = if (total_remaining > env_h) total_remaining - env_h else 0,
-        .border = .{ .where = .all, .style = templates_border },
-    });
-    components.templates_panel.render(allocator, templates_win, app, theme);
+    const templates_h: u16 = if (total_remaining > env_h) total_remaining - env_h else 0;
+    if (left_w > 0 and templates_h > 0) {
+        const templates_win = win.child(.{
+            .x_off = 0,
+            .y_off = status_h + env_h,
+            .width = left_w,
+            .height = templates_h,
+            .border = .{ .where = .all, .style = templates_border },
+        });
+        components.templates_panel.render(allocator, templates_win, app, theme);
+    }
 
     if (method_w > 0) {
         const method_selected = app.ui.left_panel == null and switch (app.ui.selected_field) {
@@ -101,7 +106,7 @@ pub fn render(
         components.command_builder.render(allocator, method_win, app, theme);
     }
 
-    if (url_w > 0) {
+    if (url_w > 0 and main_h > 0) {
         const url_win = win.child(.{
             .x_off = left_w + method_w,
             .y_off = status_h,
@@ -111,7 +116,7 @@ pub fn render(
         components.url_container.render(allocator, url_win, app, theme);
     }
 
-    if (history_w > 0) {
+    if (history_w > 0 and main_h > 0) {
         const history_border = if (app.ui.left_panel != null and app.ui.left_panel.? == .history) theme.accent else theme.border;
         const history_win = win.child(.{
             .x_off = left_w + method_w + url_w,
@@ -125,21 +130,26 @@ pub fn render(
 
     const command_preview = try app.buildCommandPreview(allocator);
 
-    const command_win = win.child(.{
-        .x_off = left_w,
-        .y_off = status_h + main_h,
-        .width = width - left_w,
-        .height = command_display_h,
-        .border = .{ .where = .all, .style = theme.border },
-    });
-    components.command_display.render(command_win, command_preview, theme);
+    const command_w: u16 = if (width > left_w) width - left_w else 0;
+    if (command_w > 0 and command_display_h > 0) {
+        const command_win = win.child(.{
+            .x_off = left_w,
+            .y_off = status_h + main_h,
+            .width = command_w,
+            .height = command_display_h,
+            .border = .{ .where = .all, .style = theme.border },
+        });
+        components.command_display.render(command_win, command_preview, theme);
+    }
 
-    const output_win = win.child(.{
-        .x_off = left_w,
-        .y_off = status_h + main_h + command_display_h,
-        .width = width - left_w,
-        .height = output_h,
-        .border = .{ .where = .all, .style = theme.border },
-    });
-    components.output_panel.render(allocator, output_win, runtime, theme);
+    if (command_w > 0 and output_h > 0) {
+        const output_win = win.child(.{
+            .x_off = left_w,
+            .y_off = status_h + main_h + command_display_h,
+            .width = command_w,
+            .height = output_h,
+            .border = .{ .where = .all, .style = theme.border },
+        });
+        components.output_panel.render(allocator, output_win, runtime, theme);
+    }
 }
