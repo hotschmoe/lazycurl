@@ -125,11 +125,26 @@ pub const UiState = struct {
     active_tab: Tab = .url,
     selected_field: SelectedField = .{ .url = .url },
     selected_template: ?usize = null,
+    selected_environment: ?usize = null,
+    selected_history: ?usize = null,
     method_dropdown_index: usize = 0,
     cursor_visible: bool = true,
     cursor_blink_counter: u8 = 0,
     edit_input: text_input.TextInput,
     body_input: text_input.TextInput,
+    left_panel: ?LeftPanel = null,
+    templates_expanded: bool = true,
+    environments_expanded: bool = true,
+    history_expanded: bool = false,
+    templates_scroll: usize = 0,
+    environments_scroll: usize = 0,
+    history_scroll: usize = 0,
+};
+
+pub const LeftPanel = enum {
+    templates,
+    environments,
+    history,
 };
 
 pub const KeyCode = union(enum) {
@@ -222,6 +237,21 @@ pub const App = struct {
                         self.state = .exiting;
                         return true;
                     }
+                    if (ch == 't') {
+                        self.ui.templates_expanded = !self.ui.templates_expanded;
+                        self.focusLeftPanel(.templates);
+                        return false;
+                    }
+                    if (ch == 'e') {
+                        self.ui.environments_expanded = !self.ui.environments_expanded;
+                        self.focusLeftPanel(.environments);
+                        return false;
+                    }
+                    if (ch == 'h') {
+                        self.ui.history_expanded = !self.ui.history_expanded;
+                        self.focusLeftPanel(.history);
+                        return false;
+                    }
                 },
                 else => {},
             }
@@ -237,28 +267,32 @@ pub const App = struct {
                 return false;
             },
             .up => {
-                if (self.ui.selected_template != null) {
-                    self.navigateTemplateUp();
+                if (self.ui.left_panel != null) {
+                    self.navigateLeftPanelUp();
                 } else {
                     self.navigateFieldUp();
                 }
                 return false;
             },
             .down => {
-                if (self.ui.selected_template != null) {
-                    self.navigateTemplateDown();
+                if (self.ui.left_panel != null) {
+                    self.navigateLeftPanelDown();
                 } else {
                     self.navigateFieldDown();
                 }
                 return false;
             },
             .left => {
-                self.navigateFieldLeft();
+                if (self.ui.left_panel == null) {
+                    self.focusLeftPanel(.templates);
+                } else {
+                    self.navigateFieldLeft();
+                }
                 return false;
             },
             .right => {
-                if (self.ui.selected_template != null) {
-                    self.ui.selected_template = null;
+                if (self.ui.left_panel != null) {
+                    self.clearLeftPanelFocus();
                     self.ui.selected_field = .{ .url = .method };
                 } else {
                     self.navigateFieldRight();
@@ -266,10 +300,23 @@ pub const App = struct {
                 return false;
             },
             .enter => {
-                if (self.ui.selected_template) |idx| {
-                    try self.loadTemplate(idx);
-                    self.ui.selected_template = null;
-                    self.ui.selected_field = .{ .url = .url };
+                if (self.ui.left_panel) |panel| {
+                    switch (panel) {
+                        .templates => if (self.ui.selected_template) |idx| {
+                            try self.loadTemplate(idx);
+                            self.clearLeftPanelFocus();
+                            self.ui.selected_field = .{ .url = .url };
+                        },
+                        .environments => if (self.ui.selected_environment) |idx| {
+                            if (idx < self.environments.items.len) {
+                                self.current_environment_index = idx;
+                            }
+                            self.clearLeftPanelFocus();
+                        },
+                        .history => {
+                            self.clearLeftPanelFocus();
+                        },
+                    }
                 } else {
                     try self.startEditingField();
                 }
@@ -442,6 +489,92 @@ pub const App = struct {
         self.ui.selected_field = defaultSelectedField(self.ui.active_tab);
     }
 
+    fn focusLeftPanel(self: *App, panel: LeftPanel) void {
+        self.ui.left_panel = panel;
+        switch (panel) {
+            .templates => {
+                if (self.templates.items.len == 0) {
+                    self.ui.selected_template = null;
+                } else if (self.ui.selected_template == null) {
+                    self.ui.selected_template = 0;
+                }
+            },
+            .environments => {
+                if (self.environments.items.len == 0) {
+                    self.ui.selected_environment = null;
+                } else if (self.ui.selected_environment == null) {
+                    self.ui.selected_environment = 0;
+                }
+            },
+            .history => {
+                if (self.history.items.len == 0) {
+                    self.ui.selected_history = null;
+                } else if (self.ui.selected_history == null) {
+                    self.ui.selected_history = 0;
+                }
+            },
+        }
+    }
+
+    fn clearLeftPanelFocus(self: *App) void {
+        self.ui.left_panel = null;
+    }
+
+    fn navigateLeftPanelUp(self: *App) void {
+        if (self.ui.left_panel == null) return;
+        switch (self.ui.left_panel.?) {
+            .templates => if (self.ui.selected_template) |idx| {
+                if (idx > 0) self.ui.selected_template = idx - 1;
+                self.ensureScroll(&self.ui.templates_scroll, self.ui.selected_template, self.templates.items.len, 6);
+            },
+            .environments => if (self.ui.selected_environment) |idx| {
+                if (idx > 0) self.ui.selected_environment = idx - 1;
+                self.ensureScroll(&self.ui.environments_scroll, self.ui.selected_environment, self.environments.items.len, 4);
+            },
+            .history => if (self.ui.selected_history) |idx| {
+                if (idx > 0) self.ui.selected_history = idx - 1;
+                self.ensureScroll(&self.ui.history_scroll, self.ui.selected_history, self.history.items.len, 4);
+            },
+        }
+    }
+
+    fn navigateLeftPanelDown(self: *App) void {
+        if (self.ui.left_panel == null) return;
+        switch (self.ui.left_panel.?) {
+            .templates => if (self.ui.selected_template) |idx| {
+                if (idx + 1 < self.templates.items.len) self.ui.selected_template = idx + 1;
+                self.ensureScroll(&self.ui.templates_scroll, self.ui.selected_template, self.templates.items.len, 6);
+            },
+            .environments => if (self.ui.selected_environment) |idx| {
+                if (idx + 1 < self.environments.items.len) self.ui.selected_environment = idx + 1;
+                self.ensureScroll(&self.ui.environments_scroll, self.ui.selected_environment, self.environments.items.len, 4);
+            },
+            .history => if (self.ui.selected_history) |idx| {
+                if (idx + 1 < self.history.items.len) self.ui.selected_history = idx + 1;
+                self.ensureScroll(&self.ui.history_scroll, self.ui.selected_history, self.history.items.len, 4);
+            },
+        }
+    }
+
+    fn ensureScroll(
+        self: *App,
+        scroll: *usize,
+        selection: ?usize,
+        total: usize,
+        view: usize,
+    ) void {
+        _ = self;
+        if (total == 0 or view == 0) {
+            scroll.* = 0;
+            return;
+        }
+        const idx = selection orelse return;
+        if (idx < scroll.*) scroll.* = idx;
+        if (idx >= scroll.* + view) scroll.* = idx - view + 1;
+        const max_scroll = if (total > view) total - view else 0;
+        if (scroll.* > max_scroll) scroll.* = max_scroll;
+    }
+
     fn navigateTemplateUp(self: *App) void {
         if (self.ui.selected_template) |idx| {
             if (idx > 0) self.ui.selected_template = idx - 1;
@@ -521,7 +654,7 @@ pub const App = struct {
             .url => |field| switch (field) {
                 .url => self.ui.selected_field = .{ .url = .method },
                 .method => {
-                    self.ui.selected_template = 0;
+                    self.focusLeftPanel(.templates);
                 },
                 .query_param => self.ui.selected_field = .{ .url = .method },
             },

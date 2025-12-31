@@ -20,7 +20,7 @@ pub fn render(
     const env_name = currentEnvironmentName(app);
     drawKeyValue(allocator, win, 3, "Env", env_name, theme);
 
-    const shortcuts = "Ctrl+X Quit | Ctrl+R/F5 Run";
+    const shortcuts = "Ctrl+X Quit | Ctrl+R/F5 Run | Ctrl+T/E/H Panels";
     drawLine(win, 4, shortcuts, theme.muted);
 }
 

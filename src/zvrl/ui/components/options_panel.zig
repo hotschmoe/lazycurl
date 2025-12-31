@@ -91,7 +91,7 @@ fn drawInputWithCursor(
 }
 
 fn isOptionSelected(app: *app_mod.App, idx: usize) bool {
-    if (app.ui.selected_template != null) return false;
+    if (app.ui.left_panel != null) return false;
     return switch (app.ui.selected_field) {
         .options => |sel| sel == idx,
         else => false,

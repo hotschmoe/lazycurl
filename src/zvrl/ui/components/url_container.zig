@@ -411,7 +411,7 @@ fn isHighlightLine(line: []const u8) bool {
 }
 
 fn isUrlSelected(app: *app_mod.App) bool {
-    if (app.ui.selected_template != null) return false;
+    if (app.ui.left_panel != null) return false;
     return switch (app.ui.selected_field) {
         .url => |field| field == .url,
         else => false,
@@ -423,7 +423,7 @@ fn isEditingUrl(app: *app_mod.App) bool {
 }
 
 fn isQueryParamSelected(app: *app_mod.App, idx: usize) bool {
-    if (app.ui.selected_template != null) return false;
+    if (app.ui.left_panel != null) return false;
     return switch (app.ui.selected_field) {
         .url => |field| switch (field) {
             .query_param => |sel| sel == idx,
@@ -434,7 +434,7 @@ fn isQueryParamSelected(app: *app_mod.App, idx: usize) bool {
 }
 
 fn isHeaderSelected(app: *app_mod.App, idx: usize) bool {
-    if (app.ui.selected_template != null) return false;
+    if (app.ui.left_panel != null) return false;
     return switch (app.ui.selected_field) {
         .headers => |sel| sel == idx,
         else => false,
@@ -442,7 +442,7 @@ fn isHeaderSelected(app: *app_mod.App, idx: usize) bool {
 }
 
 fn isBodyTypeSelected(app: *app_mod.App) bool {
-    if (app.ui.selected_template != null) return false;
+    if (app.ui.left_panel != null) return false;
     return switch (app.ui.selected_field) {
         .body => |field| field == .type,
         else => false,
@@ -450,7 +450,7 @@ fn isBodyTypeSelected(app: *app_mod.App) bool {
 }
 
 fn isBodyContentSelected(app: *app_mod.App) bool {
-    if (app.ui.selected_template != null) return false;
+    if (app.ui.left_panel != null) return false;
     return switch (app.ui.selected_field) {
         .body => |field| field == .content,
         else => false,
@@ -458,7 +458,7 @@ fn isBodyContentSelected(app: *app_mod.App) bool {
 }
 
 fn isContentSelected(app: *app_mod.App) bool {
-    if (app.ui.selected_template != null) return false;
+    if (app.ui.left_panel != null) return false;
     return switch (app.ui.selected_field) {
         .url => |field| switch (field) {
             .query_param => true,

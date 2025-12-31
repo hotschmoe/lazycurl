@@ -49,7 +49,7 @@ fn drawLine(win: vaxis.Window, row: u16, text: []const u8, style: vaxis.Style) v
 }
 
 fn isMethodSelected(app: *app_mod.App) bool {
-    if (app.ui.selected_template != null) return false;
+    if (app.ui.left_panel != null) return false;
     return switch (app.ui.selected_field) {
         .url => |field| field == .method,
         else => false,
