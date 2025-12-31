@@ -284,18 +284,29 @@ pub const App = struct {
             },
             .left => {
                 if (self.ui.left_panel == null) {
-                    self.focusLeftPanel(.templates);
-                } else {
                     self.navigateFieldLeft();
+                } else {
+                    if (self.ui.left_panel.? == .history) {
+                        self.clearLeftPanelFocus();
+                        self.ui.selected_field = .{ .url = .url };
+                    }
+                    return false;
                 }
                 return false;
             },
             .right => {
                 if (self.ui.left_panel != null) {
+                    if (self.ui.left_panel.? == .history) {
+                        return false;
+                    }
                     self.clearLeftPanelFocus();
                     self.ui.selected_field = .{ .url = .method };
                 } else {
-                    self.navigateFieldRight();
+                    if (self.isMethodSelected()) {
+                        self.ui.selected_field = .{ .url = .url };
+                    } else if (self.isUrlValueSelected()) {
+                        self.focusLeftPanel(.history);
+                    }
                 }
                 return false;
             },
@@ -664,12 +675,24 @@ pub const App = struct {
         }
     }
 
+    fn isUrlValueSelected(self: *App) bool {
+        return switch (self.ui.selected_field) {
+            .url => |field| field == .url,
+            else => false,
+        };
+    }
+
+    fn isMethodSelected(self: *App) bool {
+        return switch (self.ui.selected_field) {
+            .url => |field| field == .method,
+            else => false,
+        };
+    }
+
     fn navigateFieldRight(self: *App) void {
         switch (self.ui.selected_field) {
             .url => |field| switch (field) {
-                .method => {
-                    self.ui.selected_field = defaultSelectedField(self.ui.active_tab);
-                },
+                .method => self.ui.selected_field = .{ .url = .url },
                 else => {},
             },
             else => {},
