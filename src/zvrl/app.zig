@@ -452,6 +452,12 @@ pub const App = struct {
                 switch (self.ui.selected_field) {
                     .body => |field| switch (field) {
                         .content => {
+                            const allow_raw = if (self.current_command.body) |body| switch (body) {
+                                .raw, .none => true,
+                                else => false,
+                            } else true;
+                            if (!allow_raw) return;
+
                             self.state = .editing;
                             self.editing_field = .body;
                             const content = if (self.current_command.body) |body| switch (body) {
@@ -861,12 +867,18 @@ pub const App = struct {
     }
 
     fn commitBodyEdit(self: *App) !void {
-        const value = self.ui.body_input.slice();
-        const payload = try self.allocator.dupe(u8, value);
-        if (self.current_command.body) |*body| {
-            body.deinit(self.allocator);
+        const allow_raw = if (self.current_command.body) |body| switch (body) {
+            .raw, .none => true,
+            else => false,
+        } else true;
+        if (allow_raw) {
+            const value = self.ui.body_input.slice();
+            const payload = try self.allocator.dupe(u8, value);
+            if (self.current_command.body) |*body| {
+                body.deinit(self.allocator);
+            }
+            self.current_command.body = .{ .raw = payload };
         }
-        self.current_command.body = .{ .raw = payload };
         self.state = .normal;
         self.editing_field = null;
     }
