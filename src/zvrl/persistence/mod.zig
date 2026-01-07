@@ -60,8 +60,10 @@ pub fn loadTemplates(allocator: Allocator, generator: *core.IdGenerator) !std.Ar
 
     const cwd = std.fs.cwd();
     if (cwd.openFile(paths.templates_file, .{ .mode = .read_only })) |file| {
-        file.close();
-        return PersistenceError.NotImplemented;
+        defer file.close();
+        const data = try file.readToEndAlloc(allocator, 1_048_576);
+        defer allocator.free(data);
+        return parseTemplatesJson(allocator, generator, data);
     } else |err| switch (err) {
         error.FileNotFound => return seedTemplates(allocator, generator),
         else => return err,
@@ -97,11 +99,19 @@ pub fn loadHistory(allocator: Allocator) !std.ArrayList(CurlCommand) {
 }
 
 pub fn saveTemplates(allocator: Allocator, templates: []const CommandTemplate) !void {
-    _ = templates;
     var paths = try resolvePaths(allocator);
     defer paths.deinit(allocator);
     try ensureStorageDirs(&paths);
-    return PersistenceError.NotImplemented;
+    const cwd = std.fs.cwd();
+    var file = try cwd.createFile(paths.templates_file, .{ .truncate = true });
+    defer file.close();
+
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const arena_alloc = arena.allocator();
+
+    const payload = try buildTemplatesJson(arena_alloc, templates);
+    try std.json.stringify(payload, .{ .whitespace = .indent_2 }, file.writer());
 }
 
 pub fn saveEnvironments(allocator: Allocator, environments: []const Environment) !void {
@@ -118,6 +128,265 @@ pub fn saveHistory(allocator: Allocator, history: []const CurlCommand) !void {
     defer paths.deinit(allocator);
     try ensureStorageDirs(&paths);
     return PersistenceError.NotImplemented;
+}
+
+const JsonTemplateFile = struct {
+    templates: []JsonTemplate,
+};
+
+const JsonTemplate = struct {
+    name: []const u8,
+    description: ?[]const u8 = null,
+    category: ?[]const u8 = null,
+    command: JsonCommand,
+    created_at: i64,
+    updated_at: i64,
+};
+
+const JsonCommand = struct {
+    name: []const u8,
+    description: ?[]const u8 = null,
+    url: []const u8,
+    method: ?[]const u8 = null,
+    headers: []JsonHeader = &.{},
+    query_params: []JsonQueryParam = &.{},
+    body: ?JsonBody = null,
+    options: []JsonOption = &.{},
+    created_at: i64,
+    updated_at: i64,
+};
+
+const JsonHeader = struct {
+    key: []const u8,
+    value: []const u8,
+    enabled: bool,
+};
+
+const JsonQueryParam = struct {
+    key: []const u8,
+    value: []const u8,
+    enabled: bool,
+};
+
+const JsonOption = struct {
+    flag: []const u8,
+    value: ?[]const u8,
+    enabled: bool,
+};
+
+const JsonBody = struct {
+    kind: []const u8,
+    raw: ?[]const u8 = null,
+    binary: ?[]const u8 = null,
+    form_data: ?[]JsonFormData = null,
+};
+
+const JsonFormData = struct {
+    key: []const u8,
+    value: []const u8,
+    enabled: bool,
+};
+
+fn buildTemplatesJson(allocator: Allocator, templates: []const CommandTemplate) !JsonTemplateFile {
+    var list = try std.ArrayList(JsonTemplate).initCapacity(allocator, templates.len);
+    for (templates) |template| {
+        const command = template.command;
+        var headers = try std.ArrayList(JsonHeader).initCapacity(allocator, command.headers.items.len);
+        for (command.headers.items) |header| {
+            try headers.append(allocator, .{
+                .key = header.key,
+                .value = header.value,
+                .enabled = header.enabled,
+            });
+        }
+
+        var query_params = try std.ArrayList(JsonQueryParam).initCapacity(allocator, command.query_params.items.len);
+        for (command.query_params.items) |param| {
+            try query_params.append(allocator, .{
+                .key = param.key,
+                .value = param.value,
+                .enabled = param.enabled,
+            });
+        }
+
+        var options = try std.ArrayList(JsonOption).initCapacity(allocator, command.options.items.len);
+        for (command.options.items) |option| {
+            try options.append(allocator, .{
+                .flag = option.flag,
+                .value = option.value,
+                .enabled = option.enabled,
+            });
+        }
+
+        var body_json: ?JsonBody = null;
+        if (command.body) |body| {
+            switch (body) {
+                .none => body_json = .{ .kind = "none" },
+                .raw => |value| body_json = .{ .kind = "raw", .raw = value },
+                .binary => |value| body_json = .{ .kind = "binary", .binary = value },
+                .form_data => |list_data| {
+                    var form_items = try std.ArrayList(JsonFormData).initCapacity(allocator, list_data.items.len);
+                    for (list_data.items) |item| {
+                        try form_items.append(allocator, .{
+                            .key = item.key,
+                            .value = item.value,
+                            .enabled = item.enabled,
+                        });
+                    }
+                    body_json = .{ .kind = "form_data", .form_data = form_items.items };
+                },
+            }
+        }
+
+        const method = if (command.method) |method| method.asString() else null;
+        const json_command = JsonCommand{
+            .name = command.name,
+            .description = command.description,
+            .url = command.url,
+            .method = method,
+            .headers = headers.items,
+            .query_params = query_params.items,
+            .body = body_json,
+            .options = options.items,
+            .created_at = @intCast(command.created_at),
+            .updated_at = @intCast(command.updated_at),
+        };
+
+        try list.append(allocator, .{
+            .name = template.name,
+            .description = template.description,
+            .category = template.category,
+            .command = json_command,
+            .created_at = @intCast(template.created_at),
+            .updated_at = @intCast(template.updated_at),
+        });
+    }
+
+    return .{ .templates = list.items };
+}
+
+fn parseTemplatesJson(
+    allocator: Allocator,
+    generator: *core.IdGenerator,
+    data: []const u8,
+) !std.ArrayList(CommandTemplate) {
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const parsed = try std.json.parseFromSlice(JsonTemplateFile, arena.allocator(), data, .{});
+    defer parsed.deinit();
+    const file = parsed.value;
+
+    var templates = try std.ArrayList(CommandTemplate).initCapacity(allocator, file.templates.len);
+    for (file.templates) |record| {
+        var command = try CurlCommand.init(allocator, generator);
+        errdefer command.deinit();
+
+        command.allocator.free(command.name);
+        const command_name = if (record.command.name.len > 0) record.command.name else record.name;
+        command.name = try allocator.dupe(u8, command_name);
+        if (record.command.description) |desc| {
+            command.description = try allocator.dupe(u8, desc);
+        }
+        command.allocator.free(command.url);
+        command.url = try allocator.dupe(u8, record.command.url);
+
+        if (record.command.method) |method_str| {
+            if (parseMethod(method_str)) |method| {
+                command.method = method;
+            }
+        }
+
+        for (command.headers.items) |*header| header.deinit(allocator);
+        command.headers.clearRetainingCapacity();
+        for (record.command.headers) |header| {
+            try command.headers.append(allocator, .{
+                .id = generator.nextId(),
+                .key = try allocator.dupe(u8, header.key),
+                .value = try allocator.dupe(u8, header.value),
+                .enabled = header.enabled,
+            });
+        }
+
+        for (command.query_params.items) |*param| param.deinit(allocator);
+        command.query_params.clearRetainingCapacity();
+        for (record.command.query_params) |param| {
+            try command.query_params.append(allocator, .{
+                .id = generator.nextId(),
+                .key = try allocator.dupe(u8, param.key),
+                .value = try allocator.dupe(u8, param.value),
+                .enabled = param.enabled,
+            });
+        }
+
+        for (command.options.items) |*option| option.deinit(allocator);
+        command.options.clearRetainingCapacity();
+        for (record.command.options) |option| {
+            const value = if (option.value) |val| try allocator.dupe(u8, val) else null;
+            try command.options.append(allocator, .{
+                .id = generator.nextId(),
+                .flag = try allocator.dupe(u8, option.flag),
+                .value = value,
+                .enabled = option.enabled,
+            });
+        }
+
+        if (record.command.body) |body| {
+            if (std.mem.eql(u8, body.kind, "none")) {
+                command.body = null;
+            } else if (std.mem.eql(u8, body.kind, "raw")) {
+                const payload = if (body.raw) |raw| try allocator.dupe(u8, raw) else try allocator.dupe(u8, "");
+                command.body = .{ .raw = payload };
+            } else if (std.mem.eql(u8, body.kind, "binary")) {
+                const payload = if (body.binary) |raw| try allocator.dupe(u8, raw) else try allocator.dupe(u8, "");
+                command.body = .{ .binary = payload };
+            } else if (std.mem.eql(u8, body.kind, "form_data")) {
+                var list = try std.ArrayList(core.models.command.FormDataItem).initCapacity(allocator, 0);
+                if (body.form_data) |items| {
+                    try list.ensureTotalCapacity(allocator, items.len);
+                    for (items) |item| {
+                        try list.append(allocator, .{
+                            .id = generator.nextId(),
+                            .key = try allocator.dupe(u8, item.key),
+                            .value = try allocator.dupe(u8, item.value),
+                            .enabled = item.enabled,
+                        });
+                    }
+                }
+                command.body = .{ .form_data = list };
+            }
+        } else {
+            command.body = null;
+        }
+
+        command.created_at = @intCast(record.command.created_at);
+        command.updated_at = @intCast(record.command.updated_at);
+
+        var template = try CommandTemplate.init(allocator, generator, record.name, command);
+        if (record.description) |desc| {
+            try template.setDescription(desc);
+        }
+        if (record.category) |cat| {
+            try template.setCategory(cat);
+        }
+        template.created_at = @intCast(record.created_at);
+        template.updated_at = @intCast(record.updated_at);
+        try templates.append(allocator, template);
+    }
+
+    return templates;
+}
+
+fn parseMethod(label: []const u8) ?core.models.command.HttpMethod {
+    if (std.ascii.eqlIgnoreCase(label, "GET")) return .get;
+    if (std.ascii.eqlIgnoreCase(label, "POST")) return .post;
+    if (std.ascii.eqlIgnoreCase(label, "PUT")) return .put;
+    if (std.ascii.eqlIgnoreCase(label, "DELETE")) return .delete;
+    if (std.ascii.eqlIgnoreCase(label, "PATCH")) return .patch;
+    if (std.ascii.eqlIgnoreCase(label, "HEAD")) return .head;
+    if (std.ascii.eqlIgnoreCase(label, "OPTIONS")) return .options;
+    if (std.ascii.eqlIgnoreCase(label, "TRACE")) return .trace;
+    if (std.ascii.eqlIgnoreCase(label, "CONNECT")) return .connect;
+    return null;
 }
 
 pub fn seedTemplates(allocator: Allocator, generator: *core.IdGenerator) !std.ArrayList(CommandTemplate) {

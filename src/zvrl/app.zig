@@ -104,6 +104,7 @@ pub const EditField = enum {
     query_param_value,
     body,
     option_value,
+    template_name,
 };
 
 pub const Tab = enum {
@@ -203,7 +204,7 @@ pub const App = struct {
         var current_command = try core.models.command.CurlCommand.init(allocator, &generator);
         try current_command.addOption(&generator, "-i", null);
 
-        const templates = try persistence.seedTemplates(allocator, &generator);
+        const templates = try persistence.loadTemplates(allocator, &generator);
         const environments = try persistence.seedEnvironments(allocator, &generator);
         const history = try std.ArrayList(core.models.command.CurlCommand).initCapacity(allocator, 0);
         const history_results = try std.ArrayList(?execution.executor.ExecutionResult).initCapacity(allocator, 0);
@@ -253,6 +254,18 @@ pub const App = struct {
     }
 
     fn handleNormalKey(self: *App, input: KeyInput, runtime: *Runtime) !bool {
+        if (input.code == .f2) {
+            if (self.ui.left_panel != null and self.ui.left_panel.? == .templates) {
+                if (self.ui.selected_template) |idx| {
+                    if (idx < self.templates.items.len) {
+                        self.state = .editing;
+                        self.editing_field = .template_name;
+                        try self.ui.edit_input.reset(self.templates.items[idx].name);
+                    }
+                }
+                return false;
+            }
+        }
         if (input.mods.ctrl) {
             switch (input.code) {
                 .char => |ch| {
@@ -893,6 +906,25 @@ pub const App = struct {
 
     fn commitSingleLineEdit(self: *App) !void {
         const value = self.ui.edit_input.slice();
+        if (self.editing_field) |field| {
+            if (field == .template_name) {
+                if (self.ui.selected_template) |idx| {
+                    if (idx < self.templates.items.len) {
+                        var template = &self.templates.items[idx];
+                        template.allocator.free(template.name);
+                        template.name = try template.allocator.dupe(u8, value);
+                        template.command.allocator.free(template.command.name);
+                        template.command.name = try template.command.allocator.dupe(u8, value);
+                        template.updated_at = core.nowTimestamp();
+                        try persistence.saveTemplates(self.allocator, self.templates.items);
+                    }
+                }
+                self.state = .normal;
+                self.editing_field = null;
+                return;
+            }
+        }
+
         switch (self.ui.selected_field) {
             .url => |field| switch (field) {
                 .url => {
