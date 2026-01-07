@@ -228,7 +228,6 @@ fn padOrTrim(allocator: std.mem.Allocator, value: []const u8, width: usize) []co
     if (width == 0) return "";
     if (value.len == width) return value;
     if (value.len > width) return value[0..width];
-    const padding = width - value.len;
     const buffer = allocator.alloc(u8, width) catch return value;
     @memcpy(buffer[0..value.len], value);
     @memset(buffer[value.len..], ' ');

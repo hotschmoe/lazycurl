@@ -111,7 +111,7 @@ pub fn saveTemplates(allocator: Allocator, templates: []const CommandTemplate) !
     const arena_alloc = arena.allocator();
 
     const payload = try buildTemplatesJson(arena_alloc, templates);
-    try std.json.stringify(payload, .{ .whitespace = .indent_2 }, file.writer());
+    try std.json.Stringify.value(payload, .{ .whitespace = .indent_2 }, file.writer());
 }
 
 pub fn saveEnvironments(allocator: Allocator, environments: []const Environment) !void {
