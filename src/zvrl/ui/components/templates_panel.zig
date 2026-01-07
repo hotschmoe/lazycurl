@@ -112,8 +112,25 @@ fn renderTemplateList(
                 var style = if (selected and focus) theme.accent else theme.title;
                 if (selected and focus) style.reverse = true;
                 const marker = if (item.collapsed) "[+]" else "[-]";
-                const line = std.fmt.allocPrint(allocator, "{s} {s}", .{ marker, item.category }) catch return row;
-                drawLine(win, row, line, style);
+                const is_editing_folder = app.state == .editing and app.editing_field != null and app.editing_field.? == .template_folder;
+                if (selected and is_editing_folder) {
+                    var cursor_style = style;
+                    cursor_style.reverse = true;
+                    const prefix = std.fmt.allocPrint(allocator, "{s} ", .{ marker }) catch return row;
+                    drawInputWithCursor(
+                        win,
+                        row,
+                        app.ui.edit_input.slice(),
+                        app.ui.edit_input.cursor,
+                        style,
+                        cursor_style,
+                        app.ui.cursor_visible,
+                        prefix,
+                    );
+                } else {
+                    const line = std.fmt.allocPrint(allocator, "{s} {s}", .{ marker, item.category }) catch return row;
+                    drawLine(win, row, line, style);
+                }
             } else if (item.template_index) |idx| {
                 const template = app.templates.items[idx];
                 const method = template.command.method orelse .get;
