@@ -57,12 +57,13 @@ fn ensureScroll(scroll: *usize, selection: ?usize, total: usize, view: usize) vo
 }
 
 fn historyLabel(allocator: std.mem.Allocator, command: anytype) ![]const u8 {
-    const default_name = "New Command";
-    if (command.name.len > 0 and !std.mem.eql(u8, command.name, default_name)) {
-        return allocator.dupe(u8, command.name);
-    }
     const method = command.method orelse .get;
-    return std.fmt.allocPrint(allocator, "{s} {s}", .{ methodLabel(method), command.url });
+    const default_name = "New Command";
+    const label = if (command.name.len > 0 and !std.mem.eql(u8, command.name, default_name))
+        command.name
+    else
+        command.url;
+    return std.fmt.allocPrint(allocator, "{s} {s}", .{ methodLabel(method), label });
 }
 
 fn methodLabel(method: anytype) []const u8 {
