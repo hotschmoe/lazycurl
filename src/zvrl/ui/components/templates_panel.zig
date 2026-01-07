@@ -115,7 +115,7 @@ fn renderTemplateList(
                 const is_editing_folder = app.state == .editing and app.editing_field != null and app.editing_field.? == .template_folder;
                 if (selected and is_editing_folder) {
                     var cursor_style = style;
-                    cursor_style.reverse = true;
+                    cursor_style.reverse = !style.reverse;
                     const prefix = std.fmt.allocPrint(allocator, "{s} ", .{ marker }) catch return row;
                     drawInputWithCursor(
                         win,
@@ -145,7 +145,7 @@ fn renderTemplateList(
                         padOrTrim(allocator, truncate(allocator, url_label, columns.url_w), columns.url_w),
                     }) catch return row;
                     var cursor_style = theme.accent;
-                    cursor_style.reverse = true;
+                    cursor_style.reverse = !theme.accent.reverse;
                     drawInputWithCursor(
                         win,
                         row,

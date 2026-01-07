@@ -78,7 +78,7 @@ fn renderUrlInput(win: vaxis.Window, app: *app_mod.App, theme: theme_mod.Theme) 
     }
     if (is_editing) {
         var cursor_style = url_style;
-        cursor_style.reverse = true;
+        cursor_style.reverse = !url_style.reverse;
         drawInputWithCursorPrefix(win, 1, app.ui.edit_input.slice(), app.ui.edit_input.cursor, url_style, cursor_style, app.ui.cursor_visible, "");
     } else {
         drawInputWithCursorPrefix(
@@ -155,7 +155,7 @@ fn renderQueryParams(
         if (is_editing) {
             const prefix = std.fmt.allocPrint(allocator, "{s} {s}=", .{ enabled, param.key }) catch return;
             var cursor_style = style;
-            cursor_style.reverse = true;
+            cursor_style.reverse = !style.reverse;
             drawInputWithCursorPrefix(win, row, app.ui.edit_input.slice(), app.ui.edit_input.cursor, style, cursor_style, app.ui.cursor_visible, prefix);
         } else {
             const line = std.fmt.allocPrint(allocator, "{s} {s}={s}", .{ enabled, param.key, param.value }) catch return;
@@ -188,7 +188,7 @@ fn renderHeaders(
         if (is_editing) {
             const prefix = std.fmt.allocPrint(allocator, "{s} {s}: ", .{ enabled, header.key }) catch return;
             var cursor_style = style;
-            cursor_style.reverse = true;
+            cursor_style.reverse = !style.reverse;
             drawInputWithCursorPrefix(win, row, app.ui.edit_input.slice(), app.ui.edit_input.cursor, style, cursor_style, app.ui.cursor_visible, prefix);
         } else {
             const line = std.fmt.allocPrint(allocator, "{s} {s}: {s}", .{ enabled, header.key, header.value }) catch return;
@@ -386,7 +386,7 @@ fn renderBodyInput(
         }
         if (line_index == cursor.row) {
             var cursor_style = style;
-            cursor_style.reverse = true;
+            cursor_style.reverse = !style.reverse;
             drawInputWithCursorPrefix(win, row, line, cursor.col, style, cursor_style, cursor_visible, "");
         } else {
             const line_style = if (isHighlightLine(line)) highlight_style else style;
@@ -397,7 +397,7 @@ fn renderBodyInput(
     }
     if (text.len == 0 and row < win.height) {
         var cursor_style = style;
-        cursor_style.reverse = true;
+        cursor_style.reverse = !style.reverse;
         drawInputWithCursorPrefix(win, row, "", 0, style, cursor_style, cursor_visible, "");
     }
 }

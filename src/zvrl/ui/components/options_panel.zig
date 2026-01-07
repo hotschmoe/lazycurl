@@ -28,7 +28,7 @@ pub fn render(
         if (is_editing) {
             const prefix = std.fmt.allocPrint(allocator, "{s} {s} ", .{ enabled, option.flag }) catch return;
             var cursor_style = style;
-            cursor_style.reverse = true;
+            cursor_style.reverse = !style.reverse;
             drawInputWithCursor(win, row, app.ui.edit_input.slice(), app.ui.edit_input.cursor, style, cursor_style, app.ui.cursor_visible, prefix);
         } else {
             const line = if (option.value) |value|
