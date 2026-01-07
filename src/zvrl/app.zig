@@ -555,6 +555,15 @@ pub const App = struct {
         self.state = .method_dropdown;
     }
 
+    pub fn applyMethodDropdownSelection(self: *App) void {
+        if (self.state != .method_dropdown) return;
+        const methods = methodList();
+        if (self.ui.method_dropdown_index < methods.len) {
+            self.current_command.method = methods[self.ui.method_dropdown_index];
+        }
+        self.state = .normal;
+    }
+
     fn nextTab(self: *App) void {
         self.ui.active_tab = switch (self.ui.active_tab) {
             .url => .headers,

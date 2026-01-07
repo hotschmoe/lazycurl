@@ -95,6 +95,7 @@ fn handleEvent(
             }
 
             if (key.matchShortcut('r', .{ .ctrl = true }) or key.codepoint == vaxis.Key.f5) {
+                app.applyMethodDropdownSelection();
                 const command = try app.executeCommand();
                 defer app.allocator.free(command);
                 _ = app.prepareHistorySnapshot() catch {};
