@@ -96,50 +96,45 @@ fn renderTemplateList(
 
     var row = start_row;
     const focus = app.ui.left_panel != null and app.ui.left_panel.? == .templates;
-    var categories = collectCategories(allocator, app.templates.items) catch return row;
-    defer categories.deinit(allocator);
+    var rows = app.buildTemplateRows(allocator) catch return row;
+    defer rows.deinit(allocator);
 
-    const selected_row = selectedRowForTemplate(app, categories.items);
-    ensureRowScroll(&app.ui.templates_scroll, selected_row, totalRowCount(app, categories.items), max_rows);
+    ensureRowScroll(&app.ui.templates_scroll, app.ui.selected_template_row, rows.items.len, max_rows);
 
     const scroll = app.ui.templates_scroll;
     var list_row: usize = 0;
     var rendered: usize = 0;
 
-    for (categories.items) |category| {
+    for (rows.items) |item| {
         if (list_row >= scroll and rendered < max_rows and row < win.height) {
-            const folder_line = std.fmt.allocPrint(allocator, "[{s}]", .{ category }) catch return row;
-            drawLine(win, row, folder_line, theme.title);
-            row += 1;
-            rendered += 1;
-        }
-        list_row += 1;
-
-        for (app.templates.items, 0..) |template, idx| {
-            if (!std.mem.eql(u8, templateCategory(template), category)) continue;
-            if (list_row >= scroll and rendered < max_rows and row < win.height) {
-                const selected = app.ui.selected_template != null and app.ui.selected_template.? == idx;
-                var style = if (selected and focus) theme.accent else theme.text;
+            const selected = app.ui.selected_template_row != null and app.ui.selected_template_row.? == list_row;
+            if (item.kind == .folder) {
+                var style = if (selected and focus) theme.accent else theme.title;
                 if (selected and focus) style.reverse = true;
+                const marker = if (item.collapsed) "[+]" else "[-]";
+                const line = std.fmt.allocPrint(allocator, "{s} {s}", .{ marker, item.category }) catch return row;
+                drawLine(win, row, line, style);
+            } else if (item.template_index) |idx| {
+                const template = app.templates.items[idx];
                 const method = template.command.method orelse .get;
                 const method_label = methodLabel(method);
                 const url_label = template.command.url;
                 const name_label = template.name;
-                const is_editing = app.state == .editing and app.editing_field != null and app.editing_field.? == .template_name and selected;
+                const is_editing = app.state == .editing and app.editing_field != null and app.editing_field.? == .template_name and selected and app.ui.editing_template_index == idx;
                 if (is_editing) {
-                    const prefix = std.fmt.allocPrint(allocator, "{s} {s} | {s} | ", .{
+                    const prefix = std.fmt.allocPrint(allocator, "{s}  {s} | {s} | ", .{
                         if (selected) ">" else " ",
                         padOrTrim(allocator, method_label, columns.method_w),
                         padOrTrim(allocator, truncate(allocator, url_label, columns.url_w), columns.url_w),
                     }) catch return row;
-                    var cursor_style = style;
+                    var cursor_style = theme.accent;
                     cursor_style.reverse = true;
                     drawInputWithCursor(
                         win,
                         row,
                         app.ui.edit_input.slice(),
                         app.ui.edit_input.cursor,
-                        style,
+                        theme.text,
                         cursor_style,
                         app.ui.cursor_visible,
                         prefix,
@@ -158,71 +153,13 @@ fn renderTemplateList(
                         theme,
                     );
                 }
-                row += 1;
-                rendered += 1;
             }
-            list_row += 1;
+            row += 1;
+            rendered += 1;
         }
+        list_row += 1;
     }
     return row;
-}
-
-fn templateCategory(template: anytype) []const u8 {
-    return template.category orelse "Ungrouped";
-}
-
-fn collectCategories(
-    allocator: std.mem.Allocator,
-    templates: anytype,
-) !std.ArrayList([]const u8) {
-    var categories = try std.ArrayList([]const u8).initCapacity(allocator, 4);
-    for (templates) |template| {
-        const category = templateCategory(template);
-        var exists = false;
-        for (categories.items) |existing| {
-            if (std.mem.eql(u8, existing, category)) {
-                exists = true;
-                break;
-            }
-        }
-        if (!exists) {
-            try categories.append(allocator, category);
-        }
-    }
-    return categories;
-}
-
-fn totalRowCount(
-    app: *app_mod.App,
-    categories: []const []const u8,
-) usize {
-    var rows: usize = 0;
-    for (categories) |category| {
-        rows += 1;
-        for (app.templates.items) |template| {
-            if (std.mem.eql(u8, templateCategory(template), category)) {
-                rows += 1;
-            }
-        }
-    }
-    return rows;
-}
-
-fn selectedRowForTemplate(
-    app: *app_mod.App,
-    categories: []const []const u8,
-) ?usize {
-    const selected = app.ui.selected_template orelse return null;
-    var row: usize = 0;
-    for (categories) |category| {
-        row += 1;
-        for (app.templates.items, 0..) |template, idx| {
-            if (!std.mem.eql(u8, templateCategory(template), category)) continue;
-            if (idx == selected) return row;
-            row += 1;
-        }
-    }
-    return null;
 }
 
 fn ensureRowScroll(scroll: *usize, selection: ?usize, total: usize, view: usize) void {
@@ -272,7 +209,7 @@ fn drawTemplateRow(
 ) void {
     if (row >= win.height) return;
     const indicator = if (selected) ">" else " ";
-    const prefix = std.fmt.allocPrint(allocator, "{s} ", .{indicator}) catch return;
+    const prefix = std.fmt.allocPrint(allocator, "{s}  ", .{indicator}) catch return;
     const method_text = padOrTrim(allocator, method_label, columns.method_w);
     const url_text = padOrTrim(allocator, truncate(allocator, url_label, columns.url_w), columns.url_w);
     const name_text = padOrTrim(allocator, truncate(allocator, name_label, columns.name_w), columns.name_w);

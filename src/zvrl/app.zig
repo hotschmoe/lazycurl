@@ -135,7 +135,7 @@ pub const SelectedField = union(enum) {
 pub const UiState = struct {
     active_tab: Tab = .url,
     selected_field: SelectedField = .{ .url = .url },
-    selected_template: ?usize = null,
+    selected_template_row: ?usize = null,
     selected_environment: ?usize = null,
     selected_history: ?usize = null,
     method_dropdown_index: usize = 0,
@@ -143,6 +143,7 @@ pub const UiState = struct {
     cursor_blink_counter: u8 = 0,
     edit_input: text_input.TextInput,
     body_input: text_input.TextInput,
+    editing_template_index: ?usize = null,
     left_panel: ?LeftPanel = null,
     templates_expanded: bool = true,
     environments_expanded: bool = true,
@@ -156,6 +157,18 @@ pub const LeftPanel = enum {
     templates,
     environments,
     history,
+};
+
+pub const TemplateRowKind = enum {
+    folder,
+    template,
+};
+
+pub const TemplateRow = struct {
+    kind: TemplateRowKind,
+    category: []const u8,
+    template_index: ?usize = null,
+    collapsed: bool = false,
 };
 
 pub const KeyCode = union(enum) {
@@ -193,6 +206,7 @@ pub const App = struct {
     ui: UiState,
     current_command: core.models.command.CurlCommand,
     templates: std.ArrayList(core.models.template.CommandTemplate),
+    templates_collapsed: std.StringHashMap(bool),
     environments: std.ArrayList(core.models.environment.Environment),
     history: std.ArrayList(core.models.command.CurlCommand),
     history_results: std.ArrayList(?execution.executor.ExecutionResult),
@@ -208,6 +222,7 @@ pub const App = struct {
         const environments = try persistence.seedEnvironments(allocator, &generator);
         const history = try std.ArrayList(core.models.command.CurlCommand).initCapacity(allocator, 0);
         const history_results = try std.ArrayList(?execution.executor.ExecutionResult).initCapacity(allocator, 0);
+        const templates_collapsed = std.StringHashMap(bool).init(allocator);
         const edit_input = try text_input.TextInput.init(allocator);
         const body_input = try text_input.TextInput.init(allocator);
 
@@ -216,6 +231,7 @@ pub const App = struct {
             .id_generator = generator,
             .current_command = current_command,
             .templates = templates,
+            .templates_collapsed = templates_collapsed,
             .environments = environments,
             .history = history,
             .history_results = history_results,
@@ -229,6 +245,7 @@ pub const App = struct {
     pub fn deinit(self: *App) void {
         self.current_command.deinit();
         persistence.deinitTemplates(self.allocator, &self.templates);
+        self.templates_collapsed.deinit();
         persistence.deinitEnvironments(self.allocator, &self.environments);
         persistence.deinitHistory(self.allocator, &self.history);
         for (self.history_results.items) |*maybe_result| {
@@ -256,12 +273,11 @@ pub const App = struct {
     fn handleNormalKey(self: *App, input: KeyInput, runtime: *Runtime) !bool {
         if (input.code == .f2) {
             if (self.ui.left_panel != null and self.ui.left_panel.? == .templates) {
-                if (self.ui.selected_template) |idx| {
-                    if (idx < self.templates.items.len) {
-                        self.state = .editing;
-                        self.editing_field = .template_name;
-                        try self.ui.edit_input.reset(self.templates.items[idx].name);
-                    }
+                if (try self.selectedTemplateIndex()) |idx| {
+                    self.state = .editing;
+                    self.editing_field = .template_name;
+                    self.ui.editing_template_index = idx;
+                    try self.ui.edit_input.reset(self.templates.items[idx].name);
                 }
                 return false;
             }
@@ -272,6 +288,10 @@ pub const App = struct {
                     if (ch == 'x') {
                         self.state = .exiting;
                         return true;
+                    }
+                    if (ch == 's') {
+                        try self.saveTemplateFromCurrent();
+                        return false;
                     }
                     if (ch == 't') {
                         self.ui.templates_expanded = !self.ui.templates_expanded;
@@ -349,10 +369,17 @@ pub const App = struct {
             .enter => {
                 if (self.ui.left_panel) |panel| {
                     switch (panel) {
-                        .templates => if (self.ui.selected_template) |idx| {
-                            try self.loadTemplate(idx);
-                            self.clearLeftPanelFocus();
-                            self.ui.selected_field = .{ .url = .url };
+                        .templates => if (try self.selectedTemplateRow()) |row| {
+                            switch (row.kind) {
+                                .folder => {
+                                    try self.toggleTemplateFolder(row.category);
+                                },
+                                .template => if (row.template_index) |idx| {
+                                    try self.loadTemplate(idx);
+                                    self.clearLeftPanelFocus();
+                                    self.ui.selected_field = .{ .url = .url };
+                                },
+                            }
                         },
                         .environments => if (self.ui.selected_environment) |idx| {
                             if (idx < self.environments.items.len) {
@@ -379,6 +406,7 @@ pub const App = struct {
         if (input.code == .escape) {
             self.state = .normal;
             self.editing_field = null;
+            self.ui.editing_template_index = null;
             return false;
         }
 
@@ -601,10 +629,11 @@ pub const App = struct {
         self.ui.left_panel = panel;
         switch (panel) {
             .templates => {
-                if (self.templates.items.len == 0) {
-                    self.ui.selected_template = null;
-                } else if (self.ui.selected_template == null) {
-                    self.ui.selected_template = 0;
+                const row_count = self.templateRowCount() catch 0;
+                if (row_count == 0) {
+                    self.ui.selected_template_row = null;
+                } else if (self.ui.selected_template_row == null or self.ui.selected_template_row.? >= row_count) {
+                    self.ui.selected_template_row = 0;
                 }
             },
             .environments => {
@@ -631,9 +660,9 @@ pub const App = struct {
     fn navigateLeftPanelUp(self: *App) void {
         if (self.ui.left_panel == null) return;
         switch (self.ui.left_panel.?) {
-            .templates => if (self.ui.selected_template) |idx| {
+            .templates => if (self.ui.selected_template_row) |idx| {
                 if (idx > 0) {
-                    self.ui.selected_template = idx - 1;
+                    self.ui.selected_template_row = idx - 1;
                 } else if (self.ui.environments_expanded and self.environments.items.len > 0) {
                     self.focusLeftPanel(.environments);
                     self.ui.selected_environment = self.environments.items.len - 1;
@@ -658,9 +687,10 @@ pub const App = struct {
     fn navigateLeftPanelDown(self: *App) void {
         if (self.ui.left_panel == null) return;
         switch (self.ui.left_panel.?) {
-            .templates => if (self.ui.selected_template) |idx| {
-                if (idx + 1 < self.templates.items.len) {
-                    self.ui.selected_template = idx + 1;
+            .templates => if (self.ui.selected_template_row) |idx| {
+                const row_count = self.templateRowCount() catch 0;
+                if (idx + 1 < row_count) {
+                    self.ui.selected_template_row = idx + 1;
                 }
             },
             .environments => if (self.ui.selected_environment) |idx| {
@@ -668,7 +698,7 @@ pub const App = struct {
                     self.ui.selected_environment = idx + 1;
                 } else if (self.ui.templates_expanded and self.templates.items.len > 0) {
                     self.focusLeftPanel(.templates);
-                    self.ui.selected_template = 0;
+                    self.ui.selected_template_row = 0;
                 }
             },
             .history => if (self.ui.selected_history) |idx| {
@@ -683,14 +713,15 @@ pub const App = struct {
     }
 
     fn navigateTemplateUp(self: *App) void {
-        if (self.ui.selected_template) |idx| {
-            if (idx > 0) self.ui.selected_template = idx - 1;
+        if (self.ui.selected_template_row) |idx| {
+            if (idx > 0) self.ui.selected_template_row = idx - 1;
         }
     }
 
     fn navigateTemplateDown(self: *App) void {
-        if (self.ui.selected_template) |idx| {
-            if (idx + 1 < self.templates.items.len) self.ui.selected_template = idx + 1;
+        if (self.ui.selected_template_row) |idx| {
+            const row_count = self.templateRowCount() catch 0;
+            if (idx + 1 < row_count) self.ui.selected_template_row = idx + 1;
         }
     }
 
@@ -908,7 +939,7 @@ pub const App = struct {
         const value = self.ui.edit_input.slice();
         if (self.editing_field) |field| {
             if (field == .template_name) {
-                if (self.ui.selected_template) |idx| {
+                if (self.ui.editing_template_index) |idx| {
                     if (idx < self.templates.items.len) {
                         var template = &self.templates.items[idx];
                         template.allocator.free(template.name);
@@ -921,6 +952,7 @@ pub const App = struct {
                 }
                 self.state = .normal;
                 self.editing_field = null;
+                self.ui.editing_template_index = null;
                 return;
             }
         }
@@ -1000,6 +1032,106 @@ pub const App = struct {
         } else {
             runtime.setResult(null);
         }
+    }
+
+    fn templateCategory(template: core.models.template.CommandTemplate) []const u8 {
+        return template.category orelse "Ungrouped";
+    }
+
+    pub fn buildTemplateRows(self: *App, allocator: std.mem.Allocator) !std.ArrayList(TemplateRow) {
+        var categories = try std.ArrayList([]const u8).initCapacity(allocator, 4);
+        defer categories.deinit(allocator);
+
+        for (self.templates.items) |template| {
+            const category = templateCategory(template);
+            var exists = false;
+            for (categories.items) |existing| {
+                if (std.mem.eql(u8, existing, category)) {
+                    exists = true;
+                    break;
+                }
+            }
+            if (!exists) {
+                try categories.append(allocator, category);
+            }
+        }
+
+        var rows = try std.ArrayList(TemplateRow).initCapacity(allocator, self.templates.items.len + categories.items.len);
+        for (categories.items) |category| {
+            const collapsed = self.templates_collapsed.get(category) orelse false;
+            try rows.append(allocator, .{
+                .kind = .folder,
+                .category = category,
+                .template_index = null,
+                .collapsed = collapsed,
+            });
+            if (!collapsed) {
+                for (self.templates.items, 0..) |template, idx| {
+                    if (std.mem.eql(u8, templateCategory(template), category)) {
+                        try rows.append(allocator, .{
+                            .kind = .template,
+                            .category = category,
+                            .template_index = idx,
+                            .collapsed = false,
+                        });
+                    }
+                }
+            }
+        }
+        return rows;
+    }
+
+    fn templateRowCount(self: *App) !usize {
+        var rows = try self.buildTemplateRows(self.allocator);
+        defer rows.deinit(self.allocator);
+        return rows.items.len;
+    }
+
+    fn selectedTemplateRow(self: *App) !?TemplateRow {
+        const row_index = self.ui.selected_template_row orelse return null;
+        var rows = try self.buildTemplateRows(self.allocator);
+        defer rows.deinit(self.allocator);
+        if (row_index >= rows.items.len) return null;
+        return rows.items[row_index];
+    }
+
+    fn selectedTemplateIndex(self: *App) !?usize {
+        if (try self.selectedTemplateRow()) |row| {
+            if (row.kind == .template) return row.template_index;
+        }
+        return null;
+    }
+
+    fn selectedTemplateCategory(self: *App) !?[]const u8 {
+        if (try self.selectedTemplateRow()) |row| {
+            return row.category;
+        }
+        return null;
+    }
+
+    fn toggleTemplateFolder(self: *App, category: []const u8) !void {
+        const current = self.templates_collapsed.get(category) orelse false;
+        if (current) {
+            _ = self.templates_collapsed.remove(category);
+        } else {
+            try self.templates_collapsed.put(category, true);
+        }
+    }
+
+    fn saveTemplateFromCurrent(self: *App) !void {
+        var cloned = try cloneCommand(self.allocator, &self.id_generator, &self.current_command);
+        errdefer cloned.deinit();
+        const base_name = if (std.mem.eql(u8, cloned.name, "New Command")) "New Template" else cloned.name;
+        var template = try core.models.template.CommandTemplate.init(self.allocator, &self.id_generator, base_name, cloned);
+        if (try self.selectedTemplateCategory()) |category| {
+            try template.setCategory(category);
+        }
+        if (!std.mem.eql(u8, template.command.name, template.name)) {
+            template.command.allocator.free(template.command.name);
+            template.command.name = try template.command.allocator.dupe(u8, template.name);
+        }
+        try self.templates.append(self.allocator, template);
+        try persistence.saveTemplates(self.allocator, self.templates.items);
     }
 };
 

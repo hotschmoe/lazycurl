@@ -31,8 +31,9 @@ fn contextLines(app: *app_mod.App) []const []const u8 {
     if (app.ui.left_panel) |panel| {
         return switch (panel) {
             .templates => &[_][]const u8{
-                "Enter Load",
+                "Enter Load/Toggle",
                 "F2 Rename",
+                "Ctrl+S Save Template",
             },
             .environments => &[_][]const u8{
                 "Enter Select",
