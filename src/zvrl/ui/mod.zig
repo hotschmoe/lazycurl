@@ -16,12 +16,27 @@ pub fn render(
 
     const status_h: u16 = 6;
     const shortcuts_h: u16 = 1;
-    const command_display_h: u16 = 4;
     const total_remaining: u16 = if (height > status_h + shortcuts_h) height - status_h - shortcuts_h else 0;
-    const remaining = if (total_remaining > command_display_h) total_remaining - command_display_h else 0;
-    const proposed_main: u16 = if (remaining > 0) @max(@as(u16, 5), (remaining * 3) / 10) else 0;
-    const main_h: u16 = if (remaining > 0) @min(remaining, proposed_main) else 0;
-    const output_h: u16 = if (remaining > main_h) remaining - main_h else 0;
+    const min_main_h: u16 = 11;
+    var command_display_h: u16 = 4;
+    var main_h: u16 = 0;
+    var output_h: u16 = 0;
+    if (total_remaining > 0) {
+        if (total_remaining <= min_main_h) {
+            command_display_h = 0;
+            main_h = total_remaining;
+        } else {
+            if (total_remaining < min_main_h + 2) {
+                command_display_h = 1;
+            } else if (total_remaining < min_main_h + 4) {
+                command_display_h = 2;
+            }
+            const remaining = if (total_remaining > command_display_h) total_remaining - command_display_h else 0;
+            const proposed_main: u16 = @max(min_main_h, (remaining * 6) / 10);
+            main_h = @min(remaining, proposed_main);
+            output_h = if (remaining > main_h) remaining - main_h else 0;
+        }
+    }
 
     const min_url_w: u16 = 20;
     const min_history_w: u16 = 16;
