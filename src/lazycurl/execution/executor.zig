@@ -46,11 +46,10 @@ pub const CommandExecutor = struct {
 
     pub fn start(self: *CommandExecutor, command: []const u8) !ExecutionJob {
         var argv_storage = try parseArgv(self.allocator, command);
-        errdefer argv_storage.deinit(self.allocator);
+        errdefer freeArgv(self.allocator, &argv_storage);
 
         const argv = argv_storage.items;
         if (argv.len == 0 or !std.mem.eql(u8, argv[0], "curl")) {
-            argv_storage.deinit(self.allocator);
             return ExecutionError.InvalidCommand;
         }
 
@@ -190,20 +189,144 @@ pub const ExecutionJob = struct {
         self.poller.deinit();
         self.stdout.deinit(self.allocator);
         self.stderr.deinit(self.allocator);
-        self.argv_storage.deinit(self.allocator);
+        freeArgv(self.allocator, &self.argv_storage);
         if (self.command.len != 0) {
             self.allocator.free(self.command);
         }
     }
 };
 
+fn freeArgv(allocator: Allocator, argv: *std.ArrayList([]const u8)) void {
+    for (argv.items) |arg| {
+        allocator.free(arg);
+    }
+    argv.deinit(allocator);
+}
+
 fn parseArgv(allocator: Allocator, command: []const u8) !std.ArrayList([]const u8) {
     var argv = try std.ArrayList([]const u8).initCapacity(allocator, 8);
-    var it = std.mem.tokenizeAny(u8, command, " \t\r\n");
-    while (it.next()) |token| {
-        try argv.append(allocator, token);
+    errdefer freeArgv(allocator, &argv);
+
+    var current = try std.ArrayList(u8).initCapacity(allocator, 0);
+    defer current.deinit(allocator);
+
+    const State = enum { normal, single, double };
+    var state: State = .normal;
+    var arg_started = false;
+    var i: usize = 0;
+
+    while (i < command.len) {
+        const ch = command[i];
+        switch (state) {
+            .normal => {
+                if (isWhitespace(ch)) {
+                    if (arg_started) {
+                        const owned = try allocator.dupe(u8, current.items);
+                        try argv.append(allocator, owned);
+                        current.clearRetainingCapacity();
+                        arg_started = false;
+                    }
+                    i += 1;
+                    continue;
+                }
+                if (ch == '\'') {
+                    state = .single;
+                    arg_started = true;
+                    i += 1;
+                    continue;
+                }
+                if (ch == '"') {
+                    state = .double;
+                    arg_started = true;
+                    i += 1;
+                    continue;
+                }
+                if (ch == '\\') {
+                    arg_started = true;
+                    if (i + 1 < command.len) {
+                        i += 1;
+                        try current.append(allocator, command[i]);
+                        i += 1;
+                    } else {
+                        try current.append(allocator, ch);
+                        i += 1;
+                    }
+                    continue;
+                }
+                arg_started = true;
+                try current.append(allocator, ch);
+                i += 1;
+            },
+            .single => {
+                if (ch == '\'') {
+                    state = .normal;
+                    i += 1;
+                    continue;
+                }
+                arg_started = true;
+                try current.append(allocator, ch);
+                i += 1;
+            },
+            .double => {
+                if (ch == '"') {
+                    state = .normal;
+                    i += 1;
+                    continue;
+                }
+                if (ch == '\\') {
+                    if (i + 1 < command.len) {
+                        const next = command[i + 1];
+                        switch (next) {
+                            '"', '\\', '$', '`', '\n' => {
+                                try current.append(allocator, next);
+                                i += 2;
+                            },
+                            else => {
+                                try current.append(allocator, ch);
+                                try current.append(allocator, next);
+                                i += 2;
+                            },
+                        }
+                        arg_started = true;
+                        continue;
+                    }
+                }
+                arg_started = true;
+                try current.append(allocator, ch);
+                i += 1;
+            },
+        }
     }
+
+    if (arg_started) {
+        const owned = try allocator.dupe(u8, current.items);
+        try argv.append(allocator, owned);
+    }
+
     return argv;
+}
+
+fn isWhitespace(ch: u8) bool {
+    return ch == ' ' or ch == '\t' or ch == '\r' or ch == '\n';
+}
+
+test "parse argv respects quotes" {
+    const allocator = std.testing.allocator;
+    const command =
+        "curl -i -X POST -H 'Content-Type: application/json' -d '{\"key\": \"value\"}' https://httpbin.org/post";
+    var argv = try parseArgv(allocator, command);
+    defer freeArgv(allocator, &argv);
+
+    try std.testing.expectEqual(@as(usize, 9), argv.items.len);
+    try std.testing.expectEqualStrings("curl", argv.items[0]);
+    try std.testing.expectEqualStrings("-i", argv.items[1]);
+    try std.testing.expectEqualStrings("-X", argv.items[2]);
+    try std.testing.expectEqualStrings("POST", argv.items[3]);
+    try std.testing.expectEqualStrings("-H", argv.items[4]);
+    try std.testing.expectEqualStrings("Content-Type: application/json", argv.items[5]);
+    try std.testing.expectEqualStrings("-d", argv.items[6]);
+    try std.testing.expectEqualStrings("{\"key\": \"value\"}", argv.items[7]);
+    try std.testing.expectEqualStrings("https://httpbin.org/post", argv.items[8]);
 }
 
 fn curlErrorMessage(exit_code: u8) []const u8 {
@@ -312,7 +435,7 @@ test "curl error message mapping" {
 
 test "parse argv tokens" {
     var argv = try parseArgv(std.testing.allocator, "curl -v https://example.com");
-    defer argv.deinit(std.testing.allocator);
+    defer freeArgv(std.testing.allocator, &argv);
     try std.testing.expectEqual(@as(usize, 3), argv.items.len);
     try std.testing.expectEqualStrings("curl", argv.items[0]);
 }
