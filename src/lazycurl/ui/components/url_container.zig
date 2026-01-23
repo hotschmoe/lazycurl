@@ -4,6 +4,7 @@ const app_mod = @import("lazycurl_app");
 const text_input = @import("lazycurl_text_input");
 const theme_mod = @import("../theme.zig");
 const options_panel = @import("options_panel.zig");
+const vxfw = vaxis.vxfw;
 
 pub fn render(
     allocator: std.mem.Allocator,
@@ -208,30 +209,21 @@ fn renderBody(
     theme: theme_mod.Theme,
 ) void {
     const body_type = bodyTypeLabel(app);
-    const selected_type = isBodyTypeSelected(app);
-    const type_style = if (selected_type) theme.accent else theme.muted;
     const border_selected = isContentSelected(app);
     const border_style = if (border_selected) theme.accent else theme.border;
-    const border_win = win.child(.{
-        .x_off = 0,
-        .y_off = 0,
-        .width = win.width,
-        .height = win.height,
-        .border = .{ .where = .all, .style = border_style },
-    });
-    drawBorderTitle(border_win, "Body", theme.title, body_type, type_style, border_style);
+    renderBorder(allocator, win, "Body", body_type, border_style);
 
     const content_selected = isBodyContentSelected(app);
     const content_style = if (content_selected) theme.accent else theme.text;
 
     const is_json = isJsonBody(app);
 
-    if (border_win.height <= 2 or border_win.width <= 2) return;
-    const editor_inner = border_win.child(.{
+    if (win.height <= 2 or win.width <= 2) return;
+    const editor_inner = win.child(.{
         .x_off = 1,
         .y_off = 1,
-        .width = border_win.width - 2,
-        .height = border_win.height - 2,
+        .width = win.width - 2,
+        .height = win.height - 2,
         .border = .{ .where = .none },
     });
     const start_row: u16 = 0;
@@ -352,39 +344,73 @@ fn drawLineClipped(win: vaxis.Window, row: u16, text: []const u8, style: vaxis.S
     drawLine(win, row, slice, style);
 }
 
-fn drawBorderTitle(
-    win: vaxis.Window,
-    title: []const u8,
-    title_style: vaxis.Style,
-    type_label: []const u8,
-    type_style: vaxis.Style,
-    border_style: vaxis.Style,
-) void {
-    if (win.width < 4) return;
-    if (title.len > 0) {
-        const segments = [_]vaxis.Segment{
-            .{ .text = " ", .style = border_style },
-            .{ .text = title, .style = title_style },
-            .{ .text = " ", .style = border_style },
+const EmptyWidget = struct {
+    pub fn widget(self: *@This()) vxfw.Widget {
+        return .{
+            .userdata = self,
+            .drawFn = @This().typeErasedDrawFn,
         };
-        _ = win.print(segments[0..], .{ .row_offset = 0, .col_offset = 1, .wrap = .none });
     }
 
-    if (type_label.len > 0) {
-        const w_usize: usize = win.width;
-        if (type_label.len + 2 < w_usize) {
-            const start_col = w_usize - type_label.len - 3;
-            const title_end = 1 + title.len + 2;
-            if (start_col > title_end) {
-                const segments = [_]vaxis.Segment{
-                    .{ .text = " ", .style = border_style },
-                    .{ .text = type_label, .style = type_style },
-                    .{ .text = " ", .style = border_style },
-                };
-                _ = win.print(segments[0..], .{ .row_offset = 0, .col_offset = @intCast(start_col), .wrap = .none });
-            }
-        }
+    fn typeErasedDrawFn(ptr: *anyopaque, ctx: vxfw.DrawContext) std.mem.Allocator.Error!vxfw.Surface {
+        const self: *@This() = @ptrCast(@alignCast(ptr));
+        return .{
+            .size = ctx.min,
+            .widget = self.widget(),
+            .buffer = &.{},
+            .children = &.{},
+        };
     }
+};
+
+fn renderBorder(
+    allocator: std.mem.Allocator,
+    win: vaxis.Window,
+    title: []const u8,
+    type_label: []const u8,
+    border_style: vaxis.Style,
+) void {
+    if (win.width <= 2 or win.height <= 2) return;
+
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    vxfw.DrawContext.init(.unicode);
+
+    const inner_w: u16 = win.width - 2;
+    const inner_h: u16 = win.height - 2;
+    var empty = EmptyWidget{};
+    const sized = vxfw.SizedBox{
+        .child = empty.widget(),
+        .size = .{ .width = inner_w, .height = inner_h },
+    };
+
+    var labels: [2]vxfw.Border.BorderLabel = undefined;
+    var label_count: usize = 0;
+    if (title.len > 0) {
+        labels[label_count] = .{ .text = title, .alignment = .top_left };
+        label_count += 1;
+    }
+    if (type_label.len > 0) {
+        labels[label_count] = .{ .text = type_label, .alignment = .top_right };
+        label_count += 1;
+    }
+
+    const border = vxfw.Border{
+        .child = sized.widget(),
+        .style = border_style,
+        .labels = labels[0..label_count],
+    };
+
+    const draw_ctx: vxfw.DrawContext = .{
+        .arena = arena.allocator(),
+        .min = .{ .width = 0, .height = 0 },
+        .max = .{ .width = win.width, .height = win.height },
+        .cell_size = .{ .width = 1, .height = 1 },
+    };
+
+    const surface = border.widget().draw(draw_ctx) catch return;
+    surface.render(win, border.widget());
 }
 
 const VisibleSlice = struct {
