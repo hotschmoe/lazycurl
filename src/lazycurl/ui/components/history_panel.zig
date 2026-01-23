@@ -2,6 +2,7 @@ const std = @import("std");
 const vaxis = @import("vaxis");
 const app_mod = @import("lazycurl_app");
 const theme_mod = @import("../theme.zig");
+const boxed = @import("boxed.zig");
 
 const TimestampMode = enum {
     full,
@@ -20,18 +21,19 @@ pub fn render(
     var header_style = if (focused) theme.accent else theme.title;
     if (focused) header_style.reverse = true;
     const title = std.fmt.allocPrint(allocator, "History ({d})", .{app.history.items.len}) catch return;
-    drawLine(win, 0, title, header_style);
+    const border_style = if (focused) theme.accent else theme.border;
+    const inner = boxed.begin(allocator, win, title, "", border_style, header_style, theme.muted);
 
     if (!app.ui.history_expanded) return;
 
-    const available = if (win.height > 1) win.height - 1 else 0;
+    const available = inner.height;
     ensureScroll(&app.ui.history_scroll, app.ui.selected_history, app.history.items.len, available);
 
-    var row: u16 = 1;
+    var row: u16 = 0;
     var idx: usize = app.ui.history_scroll;
     var rendered: usize = 0;
-    const timestamp_mode = pickTimestampMode(win.width);
-    while (idx < app.history.items.len and row < win.height and rendered < available) : (idx += 1) {
+    const timestamp_mode = pickTimestampMode(inner.width);
+    while (idx < app.history.items.len and row < inner.height and rendered < available) : (idx += 1) {
         const command = app.history.items[idx];
         const selected = app.ui.selected_history != null and app.ui.selected_history.? == idx;
         var style = if (selected and focused) theme.accent else theme.text;
@@ -39,10 +41,10 @@ pub fn render(
         const prefix = if (selected) ">" else " ";
         const label = historyLabel(allocator, command) catch return;
         const timestamp = formatTimestamp(allocator, command.updated_at, timestamp_mode) catch return;
-        const max_label = maxLabelWidth(win.width, timestamp.len);
+        const max_label = maxLabelWidth(inner.width, timestamp.len);
         const label_trimmed = if (label.len > max_label) label[0..max_label] else label;
         const line = std.fmt.allocPrint(allocator, " {s} {s} {s}", .{ prefix, timestamp, label_trimmed }) catch return;
-        drawLine(win, row, line, style);
+        drawLine(inner, row, line, style);
         row += 1;
         rendered += 1;
     }

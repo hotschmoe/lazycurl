@@ -77,7 +77,7 @@ pub fn render(
             .y_off = 0,
             .width = width,
             .height = status_h,
-            .border = .{ .where = .all, .style = theme.border },
+            .border = .{ .where = .none },
         });
         components.status_bar.render(allocator, status_win, app, theme);
     }
@@ -93,7 +93,6 @@ pub fn render(
         components.shortcuts_panel.render(allocator, shortcuts_win, app, theme);
     }
 
-    const env_border = if (app.ui.left_panel != null and app.ui.left_panel.? == .environments) theme.accent else theme.border;
     const env_h: u16 = if (total_remaining > 6) 6 else total_remaining;
     if (left_w > 0 and env_h > 0) {
         const env_win = win.child(.{
@@ -101,12 +100,11 @@ pub fn render(
             .y_off = status_h,
             .width = left_w,
             .height = env_h,
-            .border = .{ .where = .all, .style = env_border },
+            .border = .{ .where = .none },
         });
         components.environment_panel.render(allocator, env_win, app, theme);
     }
 
-    const templates_border = if (app.ui.left_panel != null and app.ui.left_panel.? == .templates) theme.accent else theme.border;
     const templates_h: u16 = if (total_remaining > env_h) total_remaining - env_h else 0;
     if (left_w > 0 and templates_h > 0) {
         const templates_win = win.child(.{
@@ -114,34 +112,28 @@ pub fn render(
             .y_off = status_h + env_h,
             .width = left_w,
             .height = templates_h,
-            .border = .{ .where = .all, .style = templates_border },
+            .border = .{ .where = .none },
         });
         components.templates_panel.render(allocator, templates_win, app, theme);
     }
     if (history_w > 0 and main_h > 0) {
-        const history_border = if (app.ui.left_panel != null and app.ui.left_panel.? == .history) theme.accent else theme.border;
         const history_win = win.child(.{
             .x_off = left_w + method_w + url_w,
             .y_off = status_h,
             .width = history_w,
             .height = main_h,
-            .border = .{ .where = .all, .style = history_border },
+            .border = .{ .where = .none },
         });
         components.history_panel.render(allocator, history_win, app, theme);
     }
 
     if (method_w > 0) {
-        const method_selected = app.ui.left_panel == null and switch (app.ui.selected_field) {
-            .url => |field| field == .method,
-            else => false,
-        };
-        const method_border = if (method_selected or app.state == .method_dropdown) theme.accent else theme.border;
         const method_win = win.child(.{
             .x_off = left_w,
             .y_off = status_h,
             .width = method_w,
             .height = main_h,
-            .border = .{ .where = .all, .style = method_border },
+            .border = .{ .where = .none },
         });
         components.command_builder.render(allocator, method_win, app, theme);
     }
@@ -166,9 +158,9 @@ pub fn render(
             .y_off = status_h + main_h,
             .width = command_w,
             .height = command_display_h,
-            .border = .{ .where = .all, .style = theme.border },
+            .border = .{ .where = .none },
         });
-        components.command_display.render(command_win, command_preview, theme);
+        components.command_display.render(allocator, command_win, command_preview, theme);
     }
 
     if (command_w > 0 and output_h > 0) {
@@ -177,7 +169,7 @@ pub fn render(
             .y_off = status_h + main_h + command_display_h,
             .width = command_w,
             .height = output_h,
-            .border = .{ .where = .all, .style = theme.border },
+            .border = .{ .where = .none },
         });
         components.output_panel.render(allocator, output_win, app, runtime, theme);
     } else {

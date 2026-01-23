@@ -2,6 +2,7 @@ const std = @import("std");
 const vaxis = @import("vaxis");
 const app_mod = @import("lazycurl_app");
 const theme_mod = @import("../theme.zig");
+const boxed = @import("boxed.zig");
 
 pub fn render(
     allocator: std.mem.Allocator,
@@ -18,6 +19,7 @@ pub fn render(
     };
     app.ui.output_copy_rect = null;
 
+    const inner = boxed.begin(allocator, win, "Output", "", theme.border, theme.title, theme.muted);
     drawHeader(win, runtime, theme, app);
 
     const status_line = if (runtime.active_job != null)
@@ -30,7 +32,7 @@ pub fn render(
     const status_style = if (runtime.active_job != null) theme.accent else if (runtime.last_result != null) theme.text else theme.muted;
     var meta_lines: [3]MetaLine = undefined;
     var meta_count: usize = 0;
-    meta_lines[meta_count] = .{ .text = status_line, .style = status_style, .row = 1 };
+    meta_lines[meta_count] = .{ .text = status_line, .style = status_style, .row = 0 };
     meta_count += 1;
 
     if (runtime.last_result) |result| {
@@ -39,29 +41,29 @@ pub fn render(
         else
             std.fmt.allocPrint(allocator, "Exit: unknown", .{}) catch return;
         const exit_style = if (result.exit_code != null and result.exit_code.? == 0) theme.success else theme.error_style;
-        meta_lines[meta_count] = .{ .text = exit_line, .style = exit_style, .row = 2 };
+        meta_lines[meta_count] = .{ .text = exit_line, .style = exit_style, .row = 1 };
         meta_count += 1;
 
         const duration_ms = result.duration_ns / std.time.ns_per_ms;
         const dur_line = std.fmt.allocPrint(allocator, "Time: {d} ms", .{duration_ms}) catch return;
-        meta_lines[meta_count] = .{ .text = dur_line, .style = theme.muted, .row = 3 };
+        meta_lines[meta_count] = .{ .text = dur_line, .style = theme.muted, .row = 2 };
         meta_count += 1;
     }
 
-    const reserved_width = maxMetaWidth(meta_lines[0..meta_count], win.height);
-    drawMetaLines(win, meta_lines[0..meta_count], win.height);
+    const reserved_width = maxMetaWidth(meta_lines[0..meta_count], inner.height);
+    drawMetaLines(inner, meta_lines[0..meta_count], inner.height);
 
-    const body_start: u16 = 1;
-    const body_height: u16 = if (win.height > body_start) win.height - body_start else 0;
+    const body_start: u16 = 0;
+    const body_height: u16 = inner.height;
     const stdout_text = runtimeOutput(runtime, .stdout);
     const stderr_text = runtimeOutput(runtime, .stderr);
     const total_lines = countLines(stdout_text) + countLines(stderr_text) + 1;
-    const content_width: u16 = if (win.width > reserved_width) win.width - reserved_width else 0;
+    const content_width: u16 = if (inner.width > reserved_width) inner.width - reserved_width else 0;
     app.updateOutputMetrics(total_lines, body_height);
     if (body_height > 0 and content_width > 0) {
 
         _ = drawOutputBody(
-            win,
+            inner,
             body_start,
             body_height,
             stdout_text,
@@ -92,7 +94,6 @@ fn runtimeOutput(runtime: *app_mod.Runtime, kind: OutputKind) []const u8 {
 }
 
 fn drawHeader(win: vaxis.Window, runtime: *app_mod.Runtime, theme: theme_mod.Theme, app: *app_mod.App) void {
-    drawLine(win, 0, "Output", theme.title);
     const now_ms = std.time.milliTimestamp();
     const copied = now_ms <= app.ui.output_copy_until_ms;
     const label = if (copied) "[Copied]" else "[Copy]";

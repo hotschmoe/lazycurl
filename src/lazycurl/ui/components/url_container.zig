@@ -4,7 +4,7 @@ const app_mod = @import("lazycurl_app");
 const text_input = @import("lazycurl_text_input");
 const theme_mod = @import("../theme.zig");
 const options_panel = @import("options_panel.zig");
-const vxfw = vaxis.vxfw;
+const boxed = @import("boxed.zig");
 
 pub fn render(
     allocator: std.mem.Allocator,
@@ -34,9 +34,9 @@ pub fn render(
             .y_off = 0,
             .width = width,
             .height = url_h,
-            .border = .{ .where = .all, .style = url_border },
+            .border = .{ .where = .none },
         });
-        renderUrlInput(url_win, app, theme);
+        renderUrlInput(allocator, url_win, app, theme, url_border);
     }
 
     if (tabs_h > 0) {
@@ -45,9 +45,10 @@ pub fn render(
             .y_off = url_h,
             .width = width,
             .height = tabs_h,
-            .border = .{ .where = .all, .style = theme.border },
+            .border = .{ .where = .none },
         });
-        renderTabs(tabs_win, app, theme);
+        const inner = boxed.begin(allocator, tabs_win, "", "", theme.border, theme.title, theme.muted);
+        renderTabs(inner, app, theme);
     }
 
     if (content_h > 0) {
@@ -57,22 +58,35 @@ pub fn render(
             .y_off = url_h + tabs_h,
             .width = width,
             .height = content_h,
-            .border = if (app.ui.active_tab == .body)
-                .{ .where = .none }
-            else
-                .{ .where = .all, .style = if (content_selected) theme.accent else theme.border },
+            .border = .{ .where = .none },
         });
-        renderTabContent(allocator, content_win, app, theme);
+        const border_style = if (content_selected) theme.accent else theme.border;
+        const tab_title = switch (app.ui.active_tab) {
+            .url => "Query Params",
+            .headers => "Headers",
+            .body => "Body",
+            .options => "Curl Options",
+        };
+        const right_label = if (app.ui.active_tab == .body) bodyTypeLabel(app) else "";
+        const right_style = if (app.ui.active_tab == .body and isBodyTypeSelected(app)) theme.accent else theme.muted;
+        const inner = boxed.begin(allocator, content_win, tab_title, right_label, border_style, theme.title, right_style);
+        renderTabContent(allocator, inner, app, theme);
     }
 }
 
-fn renderUrlInput(win: vaxis.Window, app: *app_mod.App, theme: theme_mod.Theme) void {
+fn renderUrlInput(
+    allocator: std.mem.Allocator,
+    win: vaxis.Window,
+    app: *app_mod.App,
+    theme: theme_mod.Theme,
+    border_style: vaxis.Style,
+) void {
     var title_style = theme.title;
     const is_editing = isEditingUrl(app);
     if (is_editing) {
         title_style = theme.accent;
     }
-    drawLine(win, 0, "URL", title_style);
+    const inner = boxed.begin(allocator, win, "URL", "", border_style, title_style, theme.muted);
 
     const is_selected = isUrlSelected(app);
     var url_style = if (is_selected) theme.accent else theme.text;
@@ -83,11 +97,11 @@ fn renderUrlInput(win: vaxis.Window, app: *app_mod.App, theme: theme_mod.Theme) 
     if (is_editing) {
         var cursor_style = url_style;
         cursor_style.reverse = !url_style.reverse;
-        drawInputWithCursorPrefix(win, 1, app.ui.edit_input.slice(), app.ui.edit_input.cursor, url_style, cursor_style, app.ui.cursor_visible, "");
+        drawInputWithCursorPrefix(inner, 0, app.ui.edit_input.slice(), app.ui.edit_input.cursor, url_style, cursor_style, app.ui.cursor_visible, "");
     } else {
         drawInputWithCursorPrefix(
-            win,
-            1,
+            inner,
+            0,
             app.current_command.url,
             app.current_command.url.len,
             url_style,
@@ -142,13 +156,12 @@ fn renderQueryParams(
     app: *app_mod.App,
     theme: theme_mod.Theme,
 ) void {
-    drawLine(win, 0, "Query Params", theme.title);
     if (app.current_command.query_params.items.len == 0) {
-        drawLine(win, 1, "No query params", theme.muted);
+        drawLine(win, 0, "No query params", theme.muted);
         return;
     }
 
-    var row: u16 = 1;
+    var row: u16 = 0;
     for (app.current_command.query_params.items, 0..) |param, idx| {
         if (row >= win.height) break;
         const enabled = if (param.enabled) "[x]" else "[ ]";
@@ -175,13 +188,12 @@ fn renderHeaders(
     app: *app_mod.App,
     theme: theme_mod.Theme,
 ) void {
-    drawLine(win, 0, "Headers", theme.title);
     if (app.current_command.headers.items.len == 0) {
-        drawLine(win, 1, "No headers", theme.muted);
+        drawLine(win, 0, "No headers", theme.muted);
         return;
     }
 
-    var row: u16 = 1;
+    var row: u16 = 0;
     for (app.current_command.headers.items, 0..) |header, idx| {
         if (row >= win.height) break;
         const enabled = if (header.enabled) "[x]" else "[ ]";
@@ -208,30 +220,17 @@ fn renderBody(
     app: *app_mod.App,
     theme: theme_mod.Theme,
 ) void {
-    const body_type = bodyTypeLabel(app);
-    const border_selected = isContentSelected(app);
-    const border_style = if (border_selected) theme.accent else theme.border;
-    renderBorder(allocator, win, "Body", body_type, border_style);
-
     const content_selected = isBodyContentSelected(app);
     const content_style = if (content_selected) theme.accent else theme.text;
 
     const is_json = isJsonBody(app);
 
-    if (win.height <= 2 or win.width <= 2) return;
-    const editor_inner = win.child(.{
-        .x_off = 1,
-        .y_off = 1,
-        .width = win.width - 2,
-        .height = win.height - 2,
-        .border = .{ .where = .none },
-    });
     const start_row: u16 = 0;
 
     const is_editing = app.state == .editing and app.editing_field != null and app.editing_field.? == .body;
     if (is_editing) {
         renderBodyInput(
-            editor_inner,
+            win,
             start_row,
             &app.ui.body_input,
             content_style,
@@ -242,24 +241,24 @@ fn renderBody(
         );
         return;
     }
-    editor_inner.hideCursor();
+    win.hideCursor();
 
     switch (app.current_command.body orelse .none) {
-        .none => drawLine(editor_inner, start_row, "No body", theme.muted),
-        .raw => |payload| renderBodyLines(editor_inner, start_row, payload, content_style, theme, is_json),
+        .none => drawLine(win, start_row, "No body", theme.muted),
+        .raw => |payload| renderBodyLines(win, start_row, payload, content_style, theme, is_json),
         .form_data => |list| {
             var row: u16 = start_row;
             for (list.items) |item| {
-                if (row >= editor_inner.height) break;
+                if (row >= win.height) break;
                 const enabled = if (item.enabled) "[x]" else "[ ]";
                 const line = std.fmt.allocPrint(allocator, "{s} {s}={s}", .{ enabled, item.key, item.value }) catch return;
-                drawLine(editor_inner, row, line, content_style);
+                drawLine(win, row, line, content_style);
                 row += 1;
             }
         },
         .binary => |payload| {
             const line = std.fmt.allocPrint(allocator, "Binary data: {d} bytes", .{payload.len}) catch return;
-            drawLine(editor_inner, start_row, line, content_style);
+            drawLine(win, start_row, line, content_style);
         },
     }
 }
@@ -344,74 +343,6 @@ fn drawLineClipped(win: vaxis.Window, row: u16, text: []const u8, style: vaxis.S
     drawLine(win, row, slice, style);
 }
 
-const EmptyWidget = struct {
-    pub fn widget(self: *@This()) vxfw.Widget {
-        return .{
-            .userdata = self,
-            .drawFn = @This().typeErasedDrawFn,
-        };
-    }
-
-    fn typeErasedDrawFn(ptr: *anyopaque, ctx: vxfw.DrawContext) std.mem.Allocator.Error!vxfw.Surface {
-        const self: *@This() = @ptrCast(@alignCast(ptr));
-        return .{
-            .size = ctx.min,
-            .widget = self.widget(),
-            .buffer = &.{},
-            .children = &.{},
-        };
-    }
-};
-
-fn renderBorder(
-    allocator: std.mem.Allocator,
-    win: vaxis.Window,
-    title: []const u8,
-    type_label: []const u8,
-    border_style: vaxis.Style,
-) void {
-    if (win.width <= 2 or win.height <= 2) return;
-
-    var arena = std.heap.ArenaAllocator.init(allocator);
-    defer arena.deinit();
-
-    vxfw.DrawContext.init(.unicode);
-
-    const inner_w: u16 = win.width - 2;
-    const inner_h: u16 = win.height - 2;
-    var empty = EmptyWidget{};
-    const sized = vxfw.SizedBox{
-        .child = empty.widget(),
-        .size = .{ .width = inner_w, .height = inner_h },
-    };
-
-    var labels: [2]vxfw.Border.BorderLabel = undefined;
-    var label_count: usize = 0;
-    if (title.len > 0) {
-        labels[label_count] = .{ .text = title, .alignment = .top_left };
-        label_count += 1;
-    }
-    if (type_label.len > 0) {
-        labels[label_count] = .{ .text = type_label, .alignment = .top_right };
-        label_count += 1;
-    }
-
-    const border = vxfw.Border{
-        .child = sized.widget(),
-        .style = border_style,
-        .labels = labels[0..label_count],
-    };
-
-    const draw_ctx: vxfw.DrawContext = .{
-        .arena = arena.allocator(),
-        .min = .{ .width = 0, .height = 0 },
-        .max = .{ .width = win.width, .height = win.height },
-        .cell_size = .{ .width = 1, .height = 1 },
-    };
-
-    const surface = border.widget().draw(draw_ctx) catch return;
-    surface.render(win, border.widget());
-}
 
 const VisibleSlice = struct {
     slice: []const u8,

@@ -2,6 +2,7 @@ const std = @import("std");
 const vaxis = @import("vaxis");
 const app_mod = @import("lazycurl_app");
 const theme_mod = @import("../theme.zig");
+const boxed = @import("boxed.zig");
 
 pub fn render(
     allocator: std.mem.Allocator,
@@ -9,22 +10,20 @@ pub fn render(
     app: *app_mod.App,
     theme: theme_mod.Theme,
 ) void {
-    const title = "Status";
     const state = stateLabel(app.state);
     const tab = tabLabel(app.ui.active_tab);
-
-    drawLine(win, 0, title, theme.title);
-    drawKeyPair(allocator, win, 1, "State", state, "Tab", tab, theme);
+    const inner = boxed.begin(allocator, win, "Status", "", theme.border, theme.title, theme.muted);
+    drawKeyPair(allocator, inner, 0, "State", state, "Tab", tab, theme);
 
     const edit_value = editLabel(app);
     var edit_style = theme.text;
     if (app.state == .editing and app.editing_field != null) {
         edit_style.bold = true;
     }
-    drawKeyValueStyled(allocator, win, 2, "Edit", edit_value, edit_style);
+    drawKeyValueStyled(allocator, inner, 1, "Edit", edit_value, edit_style);
 
     const env_name = currentEnvironmentName(app);
-    drawKeyValue(allocator, win, 3, "Env", env_name, theme);
+    drawKeyValue(allocator, inner, 2, "Env", env_name, theme);
 }
 
 fn drawLine(win: vaxis.Window, row: u16, text: []const u8, style: vaxis.Style) void {

@@ -1,10 +1,16 @@
+const std = @import("std");
 const vaxis = @import("vaxis");
-const app_mod = @import("lazycurl_app");
 const theme_mod = @import("../theme.zig");
+const boxed = @import("boxed.zig");
 
-pub fn render(win: vaxis.Window, command_preview: []const u8, theme: theme_mod.Theme) void {
-    drawLine(win, 0, "Command Preview", theme.title);
-    drawWrapped(win, 1, command_preview, theme.text);
+pub fn render(
+    allocator: std.mem.Allocator,
+    win: vaxis.Window,
+    command_preview: []const u8,
+    theme: theme_mod.Theme,
+) void {
+    const inner = boxed.begin(allocator, win, "Command Preview", "", theme.border, theme.title, theme.muted);
+    drawWrapped(inner, 0, command_preview, theme.text);
 }
 
 fn drawLine(win: vaxis.Window, row: u16, text: []const u8, style: vaxis.Style) void {

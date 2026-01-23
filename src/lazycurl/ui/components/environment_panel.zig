@@ -2,6 +2,7 @@ const std = @import("std");
 const vaxis = @import("vaxis");
 const app_mod = @import("lazycurl_app");
 const theme_mod = @import("../theme.zig");
+const boxed = @import("boxed.zig");
 
 pub fn render(
     allocator: std.mem.Allocator,
@@ -14,17 +15,18 @@ pub fn render(
     var header_style = if (focused) theme.accent else theme.title;
     if (focused) header_style.reverse = true;
     const title = std.fmt.allocPrint(allocator, "Environments ({d})", .{app.environments.items.len}) catch return;
-    drawLine(win, 0, title, header_style);
+    const border_style = if (focused) theme.accent else theme.border;
+    const inner = boxed.begin(allocator, win, title, "", border_style, header_style, theme.muted);
 
     if (!app.ui.environments_expanded) return;
 
-    const available = if (win.height > 1) win.height - 1 else 0;
+    const available = inner.height;
     ensureScroll(&app.ui.environments_scroll, app.ui.selected_environment, app.environments.items.len, available);
 
-    var row: u16 = 1;
+    var row: u16 = 0;
     var idx: usize = app.ui.environments_scroll;
     var rendered: usize = 0;
-    while (idx < app.environments.items.len and row < win.height and rendered < available) : (idx += 1) {
+    while (idx < app.environments.items.len and row < inner.height and rendered < available) : (idx += 1) {
         const env = app.environments.items[idx];
         const selected = app.ui.selected_environment != null and app.ui.selected_environment.? == idx;
         var style = if (selected and focused) theme.accent else theme.text;
@@ -32,7 +34,7 @@ pub fn render(
         const marker = if (app.current_environment_index == idx) "*" else " ";
         const prefix = if (selected) ">" else " ";
         const line = std.fmt.allocPrint(allocator, " {s}{s} {s}", .{ marker, prefix, env.name }) catch return;
-        drawLine(win, row, line, style);
+        drawLine(inner, row, line, style);
         row += 1;
         rendered += 1;
     }

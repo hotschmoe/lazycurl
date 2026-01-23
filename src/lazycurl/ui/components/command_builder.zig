@@ -2,6 +2,7 @@ const std = @import("std");
 const vaxis = @import("vaxis");
 const app_mod = @import("lazycurl_app");
 const theme_mod = @import("../theme.zig");
+const boxed = @import("boxed.zig");
 
 pub fn render(
     allocator: std.mem.Allocator,
@@ -9,8 +10,10 @@ pub fn render(
     app: *app_mod.App,
     theme: theme_mod.Theme,
 ) void {
-    drawLine(win, 0, "Method", theme.title);
-    renderMethodList(allocator, win, app, theme);
+    const method_selected = isMethodSelected(app) or app.state == .method_dropdown;
+    const border_style = if (method_selected) theme.accent else theme.border;
+    const inner = boxed.begin(allocator, win, "Method", "", border_style, theme.title, theme.muted);
+    renderMethodList(allocator, inner, app, theme);
 }
 
 fn renderMethodList(
@@ -28,7 +31,7 @@ fn renderMethodList(
     else
         findMethodIndex(methods, current.asString());
 
-    var row: u16 = 1;
+    var row: u16 = 0;
     for (methods, 0..) |method, idx| {
         if (row >= win.height) break;
         const is_current = methodMatches(method, current.asString());

@@ -2,6 +2,7 @@ const std = @import("std");
 const vaxis = @import("vaxis");
 const app_mod = @import("lazycurl_app");
 const theme_mod = @import("../theme.zig");
+const boxed = @import("boxed.zig");
 
 pub fn render(
     allocator: std.mem.Allocator,
@@ -14,14 +15,15 @@ pub fn render(
     var header_style = if (focused) theme.accent else theme.title;
     if (focused) header_style.reverse = true;
     const title = std.fmt.allocPrint(allocator, "Templates ({d})", .{app.templates.items.len}) catch return;
-    drawLine(win, 0, title, header_style);
+    const border_style = if (focused) theme.accent else theme.border;
+    const inner = boxed.begin(allocator, win, title, "", border_style, header_style, theme.muted);
 
     if (!app.ui.templates_expanded) return;
 
-    const available = if (win.height > 2) win.height - 2 else 0;
-    const columns = columnLayout(win.width);
-    drawColumnsHeader(allocator, win, 1, columns, theme);
-    _ = renderTemplateList(allocator, win, 2, app, theme, available, columns);
+    const available = if (inner.height > 1) inner.height - 1 else 0;
+    const columns = columnLayout(inner.width);
+    drawColumnsHeader(allocator, inner, 0, columns, theme);
+    _ = renderTemplateList(allocator, inner, 1, app, theme, available, columns);
 }
 
 fn drawLine(win: vaxis.Window, row: u16, text: []const u8, style: vaxis.Style) void {

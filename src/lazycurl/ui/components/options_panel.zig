@@ -9,14 +9,12 @@ pub fn render(
     app: *app_mod.App,
     theme: theme_mod.Theme,
 ) void {
-    drawLine(win, 0, "Curl Options", theme.title);
-
     if (app.current_command.options.items.len == 0) {
-        drawLine(win, 1, "No options", theme.muted);
+        drawLine(win, 0, "No options", theme.muted);
         return;
     }
 
-    var row: u16 = 1;
+    var row: u16 = 0;
     for (app.current_command.options.items, 0..) |option, idx| {
         if (row >= win.height) break;
         const enabled = if (option.enabled) "[x]" else "[ ]";
