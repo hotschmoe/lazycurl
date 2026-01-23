@@ -126,7 +126,9 @@ fn handleEvent(
                                         const fallback = runtime.outputError();
                                         const payload = if (body.len > 0) body else fallback;
                                         if (payload.len > 0) {
-                                            vx.copyToSystemClipboard(tty, payload, allocator) catch {};
+                                            if (vx.copyToSystemClipboard(tty, payload, allocator)) |_| {
+                                                app.markOutputCopied();
+                                            } else |_| {}
                                         }
                                     }
                                 }

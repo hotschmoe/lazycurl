@@ -171,6 +171,7 @@ pub const UiState = struct {
     output_follow: bool = true,
     output_rect: ?PanelRect = null,
     output_copy_rect: ?PanelRect = null,
+    output_copy_until_ms: i64 = 0,
 };
 
 pub const LeftPanel = enum {
@@ -931,12 +932,11 @@ pub const App = struct {
         } else if (self.ui.output_scroll > max_scroll) {
             self.ui.output_scroll = max_scroll;
         }
-        self.ui.output_follow = self.ui.output_scroll == max_scroll;
     }
 
     pub fn resetOutputScroll(self: *App) void {
         self.ui.output_scroll = 0;
-        self.ui.output_follow = true;
+        self.ui.output_follow = false;
     }
 
     pub fn scrollOutputLines(self: *App, delta: i32) void {
@@ -951,7 +951,10 @@ pub const App = struct {
 
     pub fn scrollOutputPage(self: *App, direction: i32) void {
         const view = if (self.ui.output_view_height > 1) self.ui.output_view_height - 1 else 1;
-        const delta: i32 = direction * @as(i32, @intCast(view));
+        var step: u16 = view / 3;
+        if (step < 3) step = 3;
+        if (step > view) step = view;
+        const delta: i32 = direction * @as(i32, @intCast(step));
         self.scrollOutputLines(delta);
     }
 
@@ -973,6 +976,10 @@ pub const App = struct {
             self.ui.output_total_lines - view
         else
             0;
+    }
+
+    pub fn markOutputCopied(self: *App) void {
+        self.ui.output_copy_until_ms = std.time.milliTimestamp() + 2000;
     }
 
     fn handleSingleLineEditingKey(self: *App, input: KeyInput) !bool {

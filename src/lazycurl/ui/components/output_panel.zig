@@ -84,25 +84,26 @@ fn runtimeOutput(runtime: *app_mod.Runtime, kind: OutputKind) []const u8 {
     return "";
 }
 
-const copy_label = "[Copy]";
-
 fn drawHeader(win: vaxis.Window, runtime: *app_mod.Runtime, theme: theme_mod.Theme, app: *app_mod.App) void {
     drawLine(win, 0, "Output", theme.title);
-    const col = copyLabelCol(win.width) orelse return;
+    const now_ms = std.time.milliTimestamp();
+    const copied = now_ms <= app.ui.output_copy_until_ms;
+    const label = if (copied) "[Copied]" else "[Copy]";
+    const col = copyLabelCol(win.width, label.len) orelse return;
     const has_output = runtime.outputBody().len > 0 or runtime.outputError().len > 0;
-    const style = if (has_output) theme.accent else theme.muted;
-    const segment = vaxis.Segment{ .text = copy_label, .style = style };
+    const style = if (!has_output) theme.muted else if (copied) theme.success else theme.accent;
+    const segment = vaxis.Segment{ .text = label, .style = style };
     _ = win.print(&.{segment}, .{ .row_offset = 0, .col_offset = col, .wrap = .none });
     app.ui.output_copy_rect = .{
         .x = win.x_off + @as(i17, @intCast(col)),
         .y = win.y_off,
-        .width = @intCast(copy_label.len),
+        .width = @intCast(label.len),
         .height = 1,
     };
 }
 
-fn copyLabelCol(width: u16) ?u16 {
-    const needed: u16 = @intCast(copy_label.len + 1);
+fn copyLabelCol(width: u16, label_len: usize) ?u16 {
+    const needed: u16 = @intCast(label_len + 1);
     if (width <= needed) return null;
     return width - needed;
 }
