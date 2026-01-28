@@ -202,6 +202,9 @@ pub const UiState = struct {
     import_url_input: text_input.TextInput,
     import_new_folder_input: text_input.TextInput,
     import_error: ?[]u8 = null,
+    header_new_pending: bool = false,
+    header_new_index: ?usize = null,
+    header_prev_selection: ?usize = null,
 };
 
 pub const LeftPanel = enum {
@@ -488,6 +491,18 @@ pub const App = struct {
             }
         }
 
+        if (self.ui.active_tab == .headers) {
+            switch (input.code) {
+                .char => |ch| {
+                    if (ch == ' ' and self.ui.left_panel == null) {
+                        try self.toggleSelectedHeader();
+                        return false;
+                    }
+                },
+                else => {},
+            }
+        }
+
         switch (input.code) {
             .tab => {
                 self.nextTab();
@@ -600,6 +615,12 @@ pub const App = struct {
         }
 
         if (input.code == .escape) {
+            if (field == .header_key or field == .header_value) {
+                if (self.ui.header_new_pending) {
+                    self.cancelNewHeader();
+                    return false;
+                }
+            }
             self.state = .normal;
             self.editing_field = null;
             self.ui.editing_template_index = null;
@@ -1228,13 +1249,15 @@ pub const App = struct {
                 },
             },
             .headers => {
-                self.state = .editing;
-                self.editing_field = .header_value;
                 switch (self.ui.selected_field) {
                     .headers => |idx| {
-                        if (idx < self.current_command.headers.items.len) {
-                            try self.ui.edit_input.reset(self.current_command.headers.items[idx].value);
+                        if (idx >= self.current_command.headers.items.len) {
+                            try self.beginNewHeader();
+                            return;
                         }
+                        self.state = .editing;
+                        self.editing_field = .header_value;
+                        try self.ui.edit_input.reset(self.current_command.headers.items[idx].value);
                     },
                     else => {},
                 }
@@ -1463,7 +1486,7 @@ pub const App = struct {
                 },
             },
             .headers => |idx| {
-                if (idx + 1 < self.current_command.headers.items.len) {
+                if (idx + 1 <= self.current_command.headers.items.len) {
                     self.ui.selected_field = .{ .headers = idx + 1 };
                 }
             },
@@ -1845,8 +1868,40 @@ pub const App = struct {
             .headers => |idx| {
                 if (idx < self.current_command.headers.items.len) {
                     var header = &self.current_command.headers.items[idx];
-                    self.allocator.free(header.value);
-                    header.value = try self.allocator.dupe(u8, value);
+                    if (self.editing_field) |field| {
+                        switch (field) {
+                            .header_key => {
+                                const trimmed = std.mem.trim(u8, value, " \t\r\n");
+                                if (trimmed.len == 0) {
+                                    if (self.ui.header_new_pending) {
+                                        self.cancelNewHeader();
+                                        return;
+                                    }
+                                    self.state = .normal;
+                                    self.editing_field = null;
+                                    return;
+                                }
+                                self.allocator.free(header.key);
+                                header.key = try self.allocator.dupe(u8, trimmed);
+                                self.editing_field = .header_value;
+                                try self.ui.edit_input.reset(header.value);
+                                return;
+                            },
+                            .header_value => {
+                                self.allocator.free(header.value);
+                                header.value = try self.allocator.dupe(u8, value);
+                                if (self.ui.header_new_pending) {
+                                    self.ui.header_new_pending = false;
+                                    self.ui.header_new_index = null;
+                                    self.ui.header_prev_selection = null;
+                                }
+                            },
+                            else => {},
+                        }
+                    } else {
+                        self.allocator.free(header.value);
+                        header.value = try self.allocator.dupe(u8, value);
+                    }
                 }
             },
             .options => |idx| {
@@ -2216,6 +2271,64 @@ pub const App = struct {
             if (std.mem.eql(u8, template.name, name)) return true;
         }
         return false;
+    }
+
+    fn toggleSelectedHeader(self: *App) !void {
+        if (self.ui.left_panel != null) return;
+        const selected = switch (self.ui.selected_field) {
+            .headers => |idx| idx,
+            else => return,
+        };
+        if (selected >= self.current_command.headers.items.len) return;
+        var header = &self.current_command.headers.items[selected];
+        header.enabled = !header.enabled;
+    }
+
+    fn appendHeader(self: *App, key: []const u8, value: []const u8, enabled: bool) !usize {
+        const header = core.models.command.Header{
+            .id = self.id_generator.nextId(),
+            .key = try self.allocator.dupe(u8, key),
+            .value = try self.allocator.dupe(u8, value),
+            .enabled = enabled,
+        };
+        errdefer {
+            self.allocator.free(header.key);
+            self.allocator.free(header.value);
+        }
+        try self.current_command.headers.append(self.allocator, header);
+        return self.current_command.headers.items.len - 1;
+    }
+
+    fn beginNewHeader(self: *App) !void {
+        const prev = if (self.current_command.headers.items.len > 0)
+            self.current_command.headers.items.len - 1
+        else
+            null;
+        const new_idx = try self.appendHeader("", "", true);
+        self.ui.selected_field = .{ .headers = new_idx };
+        self.ui.header_new_pending = true;
+        self.ui.header_new_index = new_idx;
+        self.ui.header_prev_selection = prev;
+        self.state = .editing;
+        self.editing_field = .header_key;
+        try self.ui.edit_input.reset("");
+    }
+
+    fn cancelNewHeader(self: *App) void {
+        if (self.ui.header_new_index) |idx| {
+            if (idx < self.current_command.headers.items.len) {
+                var removed = self.current_command.headers.orderedRemove(idx);
+                removed.deinit(self.allocator);
+            }
+        }
+        if (self.ui.header_prev_selection) |idx| {
+            self.ui.selected_field = .{ .headers = idx };
+        }
+        self.ui.header_new_pending = false;
+        self.ui.header_new_index = null;
+        self.ui.header_prev_selection = null;
+        self.state = .normal;
+        self.editing_field = null;
     }
 
     fn hasTemplateFolder(self: *App, name: []const u8) bool {

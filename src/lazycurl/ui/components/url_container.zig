@@ -188,21 +188,20 @@ fn renderHeaders(
     app: *app_mod.App,
     theme: theme_mod.Theme,
 ) void {
-    if (app.current_command.headers.items.len == 0) {
-        drawLine(win, 0, "No headers", theme.muted);
-        return;
-    }
-
     var row: u16 = 0;
     for (app.current_command.headers.items, 0..) |header, idx| {
         if (row >= win.height) break;
         const enabled = if (header.enabled) "[x]" else "[ ]";
         const is_selected = isHeaderSelected(app, idx);
-        const is_editing = app.state == .editing and app.editing_field != null and app.editing_field.? == .header_value and is_selected;
+        const is_editing = app.state == .editing and app.editing_field != null and is_selected and
+            (app.editing_field.? == .header_value or app.editing_field.? == .header_key);
         var style = if (is_selected) theme.accent else theme.text;
         if (is_selected) style.reverse = true;
         if (is_editing) {
-            const prefix = std.fmt.allocPrint(allocator, "{s} {s}: ", .{ enabled, header.key }) catch return;
+            const prefix = if (app.editing_field.? == .header_key)
+                std.fmt.allocPrint(allocator, "{s} ", .{enabled}) catch return
+            else
+                std.fmt.allocPrint(allocator, "{s} {s}: ", .{ enabled, header.key }) catch return;
             var cursor_style = style;
             cursor_style.reverse = !style.reverse;
             drawInputWithCursorPrefix(win, row, app.ui.edit_input.slice(), app.ui.edit_input.cursor, style, cursor_style, app.ui.cursor_visible, prefix);
@@ -211,6 +210,13 @@ fn renderHeaders(
             drawLine(win, row, line, style);
         }
         row += 1;
+    }
+
+    if (row < win.height) {
+        const ghost_selected = isHeaderSelected(app, app.current_command.headers.items.len);
+        var ghost_style = if (ghost_selected) theme.accent else theme.muted;
+        if (ghost_selected) ghost_style.reverse = true;
+        drawLine(win, row, "[ ] New header", ghost_style);
     }
 }
 
