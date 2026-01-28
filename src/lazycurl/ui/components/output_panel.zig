@@ -19,8 +19,11 @@ pub fn render(
     };
     app.ui.output_copy_rect = null;
 
-    const inner = boxed.begin(allocator, win, "Output", "", theme.border, theme.title, theme.muted);
-    drawHeader(win, runtime, theme, app);
+    const status_style = httpStatusStyle(runtime, theme);
+    var status_buf: [64]u8 = undefined;
+    const status_label = httpStatusLabel(runtime, &status_buf);
+    const inner = boxed.begin(allocator, win, "Output", status_label, theme.border, theme.title, status_style);
+    drawHeader(inner, runtime, theme, app);
 
     const status_line = if (runtime.active_job != null)
         "Status: running"
@@ -29,7 +32,6 @@ pub fn render(
     else
         "Status: idle";
 
-    const status_style = if (runtime.active_job != null) theme.accent else if (runtime.last_result != null) theme.text else theme.muted;
     var meta_lines: [3]MetaLine = undefined;
     var meta_count: usize = 0;
     meta_lines[meta_count] = .{ .text = status_line, .style = status_style, .row = 0 };
@@ -50,11 +52,12 @@ pub fn render(
         meta_count += 1;
     }
 
-    const reserved_width = maxMetaWidth(meta_lines[0..meta_count], inner.height);
+    const bottom_reserved: u16 = if (inner.height > 0) 1 else 0;
+    const reserved_width = maxMetaWidth(meta_lines[0..meta_count], inner.height - bottom_reserved);
     drawMetaLines(inner, meta_lines[0..meta_count], inner.height);
 
     const body_start: u16 = 0;
-    const body_height: u16 = inner.height;
+    const body_height: u16 = if (inner.height > 0) inner.height - 1 else 0;
     const stdout_text = runtimeOutput(runtime, .stdout);
     const stderr_text = runtimeOutput(runtime, .stderr);
     const total_lines = countLines(stdout_text) + countLines(stderr_text) + 1;
@@ -94,26 +97,99 @@ fn runtimeOutput(runtime: *app_mod.Runtime, kind: OutputKind) []const u8 {
 }
 
 fn drawHeader(win: vaxis.Window, runtime: *app_mod.Runtime, theme: theme_mod.Theme, app: *app_mod.App) void {
+    if (win.height == 0) return;
     const now_ms = std.time.milliTimestamp();
     const copied = now_ms <= app.ui.output_copy_until_ms;
     const label = if (copied) "[Copied]" else "[Copy]";
-    const col = copyLabelCol(win.width, label.len) orelse return;
+    const col = copyLabelCol(win.width) orelse return;
     const has_output = runtime.outputBody().len > 0 or runtime.outputError().len > 0;
     const style = if (!has_output) theme.muted else if (copied) theme.success else theme.accent;
     const segment = vaxis.Segment{ .text = label, .style = style };
-    _ = win.print(&.{segment}, .{ .row_offset = 0, .col_offset = col, .wrap = .none });
+    _ = win.print(&.{segment}, .{ .row_offset = win.height - 1, .col_offset = col, .wrap = .none });
     app.ui.output_copy_rect = .{
         .x = win.x_off + @as(i17, @intCast(col)),
-        .y = win.y_off,
+        .y = win.y_off + @as(i17, @intCast(win.height - 1)),
         .width = @intCast(label.len),
         .height = 1,
     };
 }
 
-fn copyLabelCol(width: u16, label_len: usize) ?u16 {
-    const needed: u16 = @intCast(label_len + 1);
-    if (width <= needed) return null;
-    return width - needed;
+fn copyLabelCol(width: u16) ?u16 {
+    if (width <= 1) return null;
+    return 1;
+}
+
+fn httpStatusLabel(runtime: *app_mod.Runtime, buf: []u8) []const u8 {
+    if (runtime.active_job != null) return "";
+    if (runtime.last_result == null) return "";
+    const stdout_text = runtime.last_result.?.stdout;
+    const stderr_text = runtime.last_result.?.stderr;
+    if (parseLastHttpStatus(stdout_text, buf)) |label| return label;
+    if (parseLastHttpStatus(stderr_text, buf)) |label| return label;
+    return "";
+}
+
+fn parseLastHttpStatus(text: []const u8, buf: []u8) ?[]const u8 {
+    var last_code: ?u16 = null;
+    var last_reason: []const u8 = "";
+    var it = std.mem.splitScalar(u8, text, '\n');
+    while (it.next()) |line_raw| {
+        const line = std.mem.trim(u8, line_raw, "\r");
+        if (!std.mem.startsWith(u8, line, "HTTP/")) continue;
+        const space_idx = std.mem.indexOfScalar(u8, line, ' ') orelse continue;
+        var idx = space_idx + 1;
+        while (idx < line.len and line[idx] == ' ') : (idx += 1) {}
+        const start = idx;
+        while (idx < line.len and std.ascii.isDigit(line[idx])) : (idx += 1) {}
+        if (start == idx) continue;
+        const code = std.fmt.parseInt(u16, line[start..idx], 10) catch continue;
+        var reason = line[idx..];
+        reason = std.mem.trim(u8, reason, " ");
+        last_code = code;
+        last_reason = reason;
+    }
+    if (last_code == null) return null;
+    const reason_trim = if (last_reason.len > 24) last_reason[0..24] else last_reason;
+    if (reason_trim.len > 0) {
+        return std.fmt.bufPrint(buf, "HTTP {d} {s}", .{ last_code.?, reason_trim }) catch null;
+    }
+    return std.fmt.bufPrint(buf, "HTTP {d}", .{last_code.?}) catch null;
+}
+
+fn httpStatusStyle(runtime: *app_mod.Runtime, theme: theme_mod.Theme) vaxis.Style {
+    if (runtime.active_job != null) return theme.accent;
+    if (runtime.last_result == null) return theme.muted;
+    const stdout_text = runtime.last_result.?.stdout;
+    const stderr_text = runtime.last_result.?.stderr;
+    if (parseLastHttpCode(stdout_text)) |code| return statusStyleForCode(code, theme);
+    if (parseLastHttpCode(stderr_text)) |code| return statusStyleForCode(code, theme);
+    return theme.text;
+}
+
+fn parseLastHttpCode(text: []const u8) ?u16 {
+    var last_code: ?u16 = null;
+    var it = std.mem.splitScalar(u8, text, '\n');
+    while (it.next()) |line_raw| {
+        const line = std.mem.trim(u8, line_raw, "\r");
+        if (!std.mem.startsWith(u8, line, "HTTP/")) continue;
+        const space_idx = std.mem.indexOfScalar(u8, line, ' ') orelse continue;
+        var idx = space_idx + 1;
+        while (idx < line.len and line[idx] == ' ') : (idx += 1) {}
+        const start = idx;
+        while (idx < line.len and std.ascii.isDigit(line[idx])) : (idx += 1) {}
+        if (start == idx) continue;
+        last_code = std.fmt.parseInt(u16, line[start..idx], 10) catch continue;
+    }
+    return last_code;
+}
+
+fn statusStyleForCode(code: u16, theme: theme_mod.Theme) vaxis.Style {
+    return switch (code / 100) {
+        2 => theme.success,
+        4 => theme.warning,
+        5 => theme.error_style,
+        else => theme.text,
+    };
 }
 
 const MetaLine = struct {

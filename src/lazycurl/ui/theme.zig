@@ -8,4 +8,5 @@ pub const Theme = struct {
     accent: vaxis.Style = .{ .fg = .{ .index = 81 }, .bold = true },
     error_style: vaxis.Style = .{ .fg = .{ .index = 203 }, .bold = true },
     success: vaxis.Style = .{ .fg = .{ .index = 114 }, .bold = true },
+    warning: vaxis.Style = .{ .fg = .{ .index = 178 }, .bold = true },
 };
