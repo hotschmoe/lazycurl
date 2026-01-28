@@ -1624,10 +1624,22 @@ pub const App = struct {
                 return false;
             },
             .left => {
+                if (self.editing_field) |field| {
+                    if (field == .header_key or field == .header_value) {
+                        try self.switchHeaderEditField(.left);
+                        return false;
+                    }
+                }
                 self.ui.edit_input.moveLeft();
                 return false;
             },
             .right => {
+                if (self.editing_field) |field| {
+                    if (field == .header_key or field == .header_value) {
+                        try self.switchHeaderEditField(.right);
+                        return false;
+                    }
+                }
                 self.ui.edit_input.moveRight();
                 return false;
             },
@@ -2329,6 +2341,48 @@ pub const App = struct {
         self.ui.header_prev_selection = null;
         self.state = .normal;
         self.editing_field = null;
+    }
+
+    fn switchHeaderEditField(self: *App, direction: enum { left, right }) !void {
+        const idx = switch (self.ui.selected_field) {
+            .headers => |sel| sel,
+            else => return,
+        };
+        if (idx >= self.current_command.headers.items.len) return;
+        const header = &self.current_command.headers.items[idx];
+        const value = self.ui.edit_input.slice();
+        const field = self.editing_field orelse return;
+
+        if (field == .header_key) {
+            const trimmed = std.mem.trim(u8, value, " \t\r\n");
+            if (trimmed.len == 0) {
+                if (self.ui.header_new_pending) {
+                    self.cancelNewHeader();
+                }
+                return;
+            }
+            self.allocator.free(header.key);
+            header.key = try self.allocator.dupe(u8, trimmed);
+            if (direction == .right) {
+                self.editing_field = .header_value;
+                try self.ui.edit_input.reset(header.value);
+            }
+            return;
+        }
+
+        if (field == .header_value) {
+            self.allocator.free(header.value);
+            header.value = try self.allocator.dupe(u8, value);
+            if (self.ui.header_new_pending) {
+                self.ui.header_new_pending = false;
+                self.ui.header_new_index = null;
+                self.ui.header_prev_selection = null;
+            }
+            if (direction == .left) {
+                self.editing_field = .header_key;
+                try self.ui.edit_input.reset(header.key);
+            }
+        }
     }
 
     fn hasTemplateFolder(self: *App, name: []const u8) bool {
