@@ -8,3 +8,4 @@ pub const command_display = @import("command_display.zig");
 pub const output_panel = @import("output_panel.zig");
 pub const options_panel = @import("options_panel.zig");
 pub const url_container = @import("url_container.zig");
+pub const swagger_import_panel = @import("swagger_import_panel.zig");

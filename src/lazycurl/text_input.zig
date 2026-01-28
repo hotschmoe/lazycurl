@@ -32,6 +32,12 @@ pub const TextInput = struct {
         self.cursor += 1;
     }
 
+    pub fn insertSlice(self: *TextInput, text: []const u8) !void {
+        if (text.len == 0) return;
+        try self.buffer.insertSlice(self.allocator, self.cursor, text);
+        self.cursor += text.len;
+    }
+
     pub fn insertPair(self: *TextInput, open: u8, close: u8) !void {
         try self.buffer.insert(self.allocator, self.cursor, open);
         self.cursor += 1;

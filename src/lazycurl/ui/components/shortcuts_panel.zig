@@ -30,6 +30,16 @@ fn drawLine(win: vaxis.Window, row: u16, text: []const u8, style: vaxis.Style) v
 }
 
 fn contextLines(app: *app_mod.App) []const []const u8 {
+    if (app.state == .importing) {
+        return &[_][]const u8{
+            "Tab Next",
+            "Esc Cancel",
+            "Left/Right Source",
+            "Up/Down Folder",
+            "PgUp/PgDn Scroll",
+            "Ctrl+Enter Import",
+        };
+    }
     if (app.state == .editing) {
         if (app.editing_field == .body) {
             if (app.ui.body_mode == .insert) {
@@ -87,6 +97,7 @@ fn contextLines(app: *app_mod.App) []const []const u8 {
 fn baseLines() []const []const u8 {
     return &[_][]const u8{
         "Ctrl+R/F5 Run",
+        "Ctrl+I Import Swagger",
         "Ctrl+X/F10 Quit",
         "PgUp/PgDn Scroll Output",
     };

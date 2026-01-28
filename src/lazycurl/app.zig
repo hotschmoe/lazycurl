@@ -104,7 +104,21 @@ pub const AppState = enum {
     normal,
     editing,
     method_dropdown,
+    importing,
     exiting,
+};
+
+pub const ImportSource = enum {
+    paste,
+    file,
+    url,
+};
+
+pub const ImportFocus = enum {
+    source,
+    input,
+    folder,
+    actions,
 };
 
 pub const EditField = enum {
@@ -178,6 +192,15 @@ pub const UiState = struct {
     output_copy_rect: ?PanelRect = null,
     output_copy_until_ms: i64 = 0,
     body_mode: BodyEditMode = .insert,
+    import_source: ImportSource = .paste,
+    import_focus: ImportFocus = .input,
+    import_action_index: usize = 0,
+    import_folder_index: usize = 0,
+    import_spec_scroll: usize = 0,
+    import_spec_input: text_input.TextInput,
+    import_path_input: text_input.TextInput,
+    import_url_input: text_input.TextInput,
+    import_error: ?[]u8 = null,
 };
 
 pub const LeftPanel = enum {
@@ -234,6 +257,7 @@ pub const KeyCode = union(enum) {
     f4,
     f6,
     f10,
+    paste: []const u8,
     char: u8,
 };
 
@@ -275,6 +299,9 @@ pub const App = struct {
         const templates_collapsed = std.StringHashMap(bool).init(allocator);
         const edit_input = try text_input.TextInput.init(allocator);
         const body_input = try text_input.TextInput.init(allocator);
+        const import_spec_input = try text_input.TextInput.init(allocator);
+        const import_path_input = try text_input.TextInput.init(allocator);
+        const import_url_input = try text_input.TextInput.init(allocator);
 
         return .{
             .allocator = allocator,
@@ -289,6 +316,9 @@ pub const App = struct {
             .ui = .{
                 .edit_input = edit_input,
                 .body_input = body_input,
+                .import_spec_input = import_spec_input,
+                .import_path_input = import_path_input,
+                .import_url_input = import_url_input,
             },
         };
     }
@@ -311,6 +341,13 @@ pub const App = struct {
         }
         self.ui.edit_input.deinit();
         self.ui.body_input.deinit();
+        self.ui.import_spec_input.deinit();
+        self.ui.import_path_input.deinit();
+        self.ui.import_url_input.deinit();
+        if (self.ui.import_error) |message| {
+            self.allocator.free(message);
+            self.ui.import_error = null;
+        }
     }
 
     pub fn handleKey(self: *App, input: KeyInput, runtime: *Runtime) !bool {
@@ -318,6 +355,7 @@ pub const App = struct {
             .normal => return self.handleNormalKey(input, runtime),
             .editing => return self.handleEditingKey(input),
             .method_dropdown => return self.handleMethodDropdownKey(input),
+            .importing => return self.handleImportKey(input),
             .exiting => return true,
         }
     }
@@ -378,6 +416,10 @@ pub const App = struct {
                     if (ch == 'x') {
                         self.state = .exiting;
                         return true;
+                    }
+                    if (ch == 'i') {
+                        try self.openSwaggerImport();
+                        return false;
                     }
                     if (ch == 't') {
                         self.ui.templates_expanded = !self.ui.templates_expanded;
@@ -550,6 +592,436 @@ pub const App = struct {
                 return false;
             },
             else => return false,
+        }
+    }
+
+    fn handleImportKey(self: *App, input: KeyInput) !bool {
+        if (input.code == .escape) {
+            self.closeSwaggerImport();
+            return false;
+        }
+        if (input.code == .tab) {
+            self.importFocusNext();
+            return false;
+        }
+        if (input.code == .back_tab) {
+            self.importFocusPrev();
+            return false;
+        }
+        if (input.mods.ctrl and input.code == .enter) {
+            try self.tryImportSwagger();
+            return false;
+        }
+
+        switch (self.ui.import_focus) {
+            .source => {
+                switch (input.code) {
+                    .left => self.setImportSource(prevImportSource(self.ui.import_source)),
+                    .right => self.setImportSource(nextImportSource(self.ui.import_source)),
+                    .char => |ch| {
+                        if (ch == 'p') self.setImportSource(.paste);
+                        if (ch == 'f') self.setImportSource(.file);
+                        if (ch == 'u') self.setImportSource(.url);
+                    },
+                    else => {},
+                }
+                return false;
+            },
+            .input => {
+                if (self.ui.import_source == .file) {
+                    return self.handleImportPathInput(input);
+                }
+                if (self.ui.import_source == .url) {
+                    return self.handleImportUrlInput(input);
+                }
+                return self.handleImportSpecInput(input);
+            },
+            .folder => {
+                switch (input.code) {
+                    .left, .up => self.moveImportFolder(-1),
+                    .right, .down => self.moveImportFolder(1),
+                    else => {},
+                }
+                return false;
+            },
+            .actions => {
+                switch (input.code) {
+                    .left => {
+                        if (self.ui.import_action_index > 0) {
+                            self.ui.import_action_index -= 1;
+                        }
+                    },
+                    .right => {
+                        if (self.ui.import_action_index < 1) {
+                            self.ui.import_action_index += 1;
+                        }
+                    },
+                    .enter => {
+                        if (self.ui.import_action_index == 0) {
+                            try self.tryImportSwagger();
+                        } else {
+                            self.closeSwaggerImport();
+                        }
+                    },
+                    else => {},
+                }
+                return false;
+            },
+        }
+    }
+
+    fn handleImportPathInput(self: *App, input: KeyInput) !bool {
+        switch (input.code) {
+            .enter => {
+                try self.tryImportSwagger();
+                return false;
+            },
+            .paste => |text| {
+                try self.ui.import_path_input.insertSlice(firstLine(text));
+            },
+            .backspace => self.ui.import_path_input.backspace(),
+            .delete => self.ui.import_path_input.delete(),
+            .left => self.ui.import_path_input.moveLeft(),
+            .right => self.ui.import_path_input.moveRight(),
+            .home => self.ui.import_path_input.moveHome(),
+            .end => self.ui.import_path_input.moveEnd(),
+            .char => |ch| {
+                if (!input.mods.ctrl) {
+                    try self.ui.import_path_input.insertByte(ch);
+                }
+            },
+            else => {},
+        }
+        return false;
+    }
+
+    fn handleImportUrlInput(self: *App, input: KeyInput) !bool {
+        switch (input.code) {
+            .enter => {
+                try self.tryImportSwagger();
+                return false;
+            },
+            .paste => |text| {
+                try self.ui.import_url_input.insertSlice(firstLine(text));
+            },
+            .backspace => self.ui.import_url_input.backspace(),
+            .delete => self.ui.import_url_input.delete(),
+            .left => self.ui.import_url_input.moveLeft(),
+            .right => self.ui.import_url_input.moveRight(),
+            .home => self.ui.import_url_input.moveHome(),
+            .end => self.ui.import_url_input.moveEnd(),
+            .char => |ch| {
+                if (!input.mods.ctrl) {
+                    try self.ui.import_url_input.insertByte(ch);
+                }
+            },
+            else => {},
+        }
+        return false;
+    }
+
+    fn handleImportSpecInput(self: *App, input: KeyInput) !bool {
+        switch (input.code) {
+            .enter => try self.ui.import_spec_input.insertByte('\n'),
+            .paste => |text| try self.ui.import_spec_input.insertSlice(text),
+            .backspace => self.ui.import_spec_input.backspace(),
+            .delete => self.ui.import_spec_input.delete(),
+            .left => self.ui.import_spec_input.moveLeft(),
+            .right => self.ui.import_spec_input.moveRight(),
+            .up => self.ui.import_spec_input.moveUp(),
+            .down => self.ui.import_spec_input.moveDown(),
+            .home => self.ui.import_spec_input.moveLineHome(),
+            .end => self.ui.import_spec_input.moveLineEnd(),
+            .page_up => moveInputLines(&self.ui.import_spec_input, -10),
+            .page_down => moveInputLines(&self.ui.import_spec_input, 10),
+            .char => |ch| {
+                if (!input.mods.ctrl) {
+                    try self.ui.import_spec_input.insertByte(ch);
+                }
+            },
+            else => {},
+        }
+        return false;
+    }
+
+    fn openSwaggerImport(self: *App) !void {
+        self.state = .importing;
+        self.editing_field = null;
+        self.ui.import_focus = .input;
+        self.ui.import_action_index = 0;
+        self.ui.import_spec_scroll = 0;
+        self.clearImportError();
+        try self.syncImportFolderSelection();
+    }
+
+    fn closeSwaggerImport(self: *App) void {
+        self.state = .normal;
+        self.clearImportError();
+    }
+
+    fn setImportSource(self: *App, source: ImportSource) void {
+        self.ui.import_source = source;
+    }
+
+    fn nextImportSource(source: ImportSource) ImportSource {
+        return switch (source) {
+            .paste => .file,
+            .file => .url,
+            .url => .paste,
+        };
+    }
+
+    fn prevImportSource(source: ImportSource) ImportSource {
+        return switch (source) {
+            .paste => .url,
+            .file => .paste,
+            .url => .file,
+        };
+    }
+
+    fn moveInputLines(input: *text_input.TextInput, delta: i32) void {
+        const steps: usize = @intCast(@abs(delta));
+        if (steps == 0) return;
+        if (delta < 0) {
+            for (0..steps) |_| input.moveUp();
+        } else {
+            for (0..steps) |_| input.moveDown();
+        }
+    }
+
+    fn firstLine(text: []const u8) []const u8 {
+        if (text.len == 0) return text;
+        const cut = std.mem.indexOfAny(u8, text, "\r\n");
+        const line = if (cut) |idx| text[0..idx] else text;
+        return std.mem.trim(u8, line, " \t\r\n");
+    }
+
+    fn importFocusNext(self: *App) void {
+        self.ui.import_focus = switch (self.ui.import_focus) {
+            .source => .input,
+            .input => .folder,
+            .folder => .actions,
+            .actions => .source,
+        };
+    }
+
+    fn importFocusPrev(self: *App) void {
+        self.ui.import_focus = switch (self.ui.import_focus) {
+            .source => .actions,
+            .input => .source,
+            .folder => .input,
+            .actions => .folder,
+        };
+    }
+
+    fn moveImportFolder(self: *App, delta: i32) void {
+        const count: usize = self.templates_folders.items.len + 1;
+        if (count == 0) {
+            self.ui.import_folder_index = 0;
+            return;
+        }
+        const current: i32 = @intCast(self.ui.import_folder_index);
+        var next = current + delta;
+        if (next < 0) {
+            next = @intCast(count - 1);
+        } else if (next >= @as(i32, @intCast(count))) {
+            next = 0;
+        }
+        self.ui.import_folder_index = @intCast(next);
+    }
+
+    fn syncImportFolderSelection(self: *App) !void {
+        self.ui.import_folder_index = 0;
+        if (try self.selectedTemplateRow()) |row| {
+            if (row.kind == .folder) {
+                self.setImportFolderByName(row.category);
+            } else if (row.template_index != null) {
+                self.setImportFolderByName(row.category);
+            }
+        }
+    }
+
+    fn setImportFolderByName(self: *App, name: []const u8) void {
+        if (self.templates_folders.items.len == 0) {
+            self.ui.import_folder_index = 0;
+            return;
+        }
+        for (self.templates_folders.items, 0..) |folder, idx| {
+            if (std.mem.eql(u8, folder, name)) {
+                self.ui.import_folder_index = idx + 1;
+                return;
+            }
+        }
+        self.ui.import_folder_index = 0;
+    }
+
+    fn importSelectedCategory(self: *App) ?[]const u8 {
+        if (self.ui.import_folder_index == 0) return null;
+        const idx = self.ui.import_folder_index - 1;
+        if (idx >= self.templates_folders.items.len) return null;
+        return self.templates_folders.items[idx];
+    }
+
+    fn tryImportSwagger(self: *App) !void {
+        self.clearImportError();
+        const category = self.importSelectedCategory();
+        if (self.ui.import_source == .file) {
+            const raw_path = std.mem.trim(u8, self.ui.import_path_input.slice(), " \t\r\n");
+            if (raw_path.len == 0) {
+                try self.setImportError("Path required");
+                return;
+            }
+            const path = try self.expandHomePath(raw_path);
+            defer self.allocator.free(path);
+            const file = std.fs.cwd().openFile(path, .{ .mode = .read_only }) catch |err| {
+                try self.setImportErrorFmt("File error: {s}", .{@errorName(err)});
+                return;
+            };
+            defer file.close();
+            const data = file.readToEndAlloc(self.allocator, 10 * 1024 * 1024) catch |err| {
+                try self.setImportErrorFmt("Read error: {s}", .{@errorName(err)});
+                return;
+            };
+            defer self.allocator.free(data);
+            try self.applySwaggerImport(data, category);
+            return;
+        }
+        if (self.ui.import_source == .url) {
+            const raw_url = std.mem.trim(u8, self.ui.import_url_input.slice(), " \t\r\n");
+            if (raw_url.len == 0) {
+                try self.setImportError("URL required");
+                return;
+            }
+            if (!std.mem.startsWith(u8, raw_url, "http://") and !std.mem.startsWith(u8, raw_url, "https://")) {
+                try self.setImportError("URL must start with http:// or https://");
+                return;
+            }
+            const download = self.downloadSwaggerSpec(raw_url) catch |err| {
+                try self.setImportErrorFmt("Download error: {s}", .{@errorName(err)});
+                return;
+            };
+            defer self.allocator.free(download.body);
+            if (download.status.class() != .success) {
+                try self.setImportErrorFmt("Download error: HTTP {d}", .{@intFromEnum(download.status)});
+                return;
+            }
+            if (download.body.len == 0) {
+                try self.setImportError("Download error: Empty response");
+                return;
+            }
+            try self.applySwaggerImport(download.body, category);
+            return;
+        }
+
+        const raw_spec = self.ui.import_spec_input.slice();
+        if (std.mem.trim(u8, raw_spec, " \t\r\n").len == 0) {
+            try self.setImportError("Paste spec JSON first");
+            return;
+        }
+        try self.applySwaggerImport(raw_spec, category);
+    }
+
+    fn applySwaggerImport(self: *App, json_text: []const u8, category: ?[]const u8) !void {
+        var imported = core.swagger.importTemplatesFromJson(self.allocator, &self.id_generator, json_text, category) catch |err| {
+            const err_name = @errorName(err);
+            if (err == error.MissingPaths) {
+                try self.setImportError("No paths found in spec");
+            } else if (err == error.NoOperations) {
+                try self.setImportError("No operations found in spec");
+            } else if (std.mem.eql(u8, err_name, "SyntaxError") or std.mem.eql(u8, err_name, "UnexpectedEndOfInput") or
+                std.mem.eql(u8, err_name, "InvalidNumber") or std.mem.eql(u8, err_name, "ValueTooLong") or
+                std.mem.eql(u8, err_name, "UnexpectedToken") or std.mem.eql(u8, err_name, "InvalidCharacter"))
+            {
+                try self.setImportError("Invalid JSON");
+            } else {
+                try self.setImportErrorFmt("Import error: {s}", .{err_name});
+            }
+            return;
+        };
+        var success = false;
+        defer {
+            if (!success) {
+                for (imported.items) |*template| template.deinit();
+            }
+            imported.deinit(self.allocator);
+        }
+
+        try self.templates.ensureUnusedCapacity(self.allocator, imported.items.len);
+        for (imported.items) |template| {
+            self.templates.appendAssumeCapacity(template);
+        }
+        success = true;
+
+        if (category) |folder| {
+            if (!self.hasTemplateFolder(folder)) {
+                try self.templates_folders.append(self.allocator, try self.allocator.dupe(u8, folder));
+            }
+        }
+        persistence.saveTemplates(self.allocator, self.templates.items, self.templates_folders.items) catch |err| {
+            try self.setImportErrorFmt("Save error: {s}", .{@errorName(err)});
+            return;
+        };
+        self.ui.import_spec_input.reset("") catch {};
+        self.ui.import_path_input.reset("") catch {};
+        self.ui.import_url_input.reset("") catch {};
+        self.closeSwaggerImport();
+        self.ui.templates_expanded = true;
+        self.focusLeftPanel(.templates);
+    }
+
+    const DownloadResult = struct {
+        status: std.http.Status,
+        body: []u8,
+    };
+
+    fn downloadSwaggerSpec(self: *App, url: []const u8) !DownloadResult {
+        var client: std.http.Client = .{ .allocator = self.allocator };
+        defer client.deinit();
+
+        var sink: std.Io.Writer.Allocating = .init(self.allocator);
+        defer sink.deinit();
+
+        const headers = [_]std.http.Header{
+            .{ .name = "accept", .value = "application/json" },
+            .{ .name = "user-agent", .value = "lazycurl" },
+        };
+        const result = try client.fetch(.{
+            .location = .{ .url = url },
+            .response_writer = &sink.writer,
+            .extra_headers = &headers,
+        });
+        const body = try sink.toOwnedSlice();
+        return .{ .status = result.status, .body = body };
+    }
+
+    fn expandHomePath(self: *App, path: []const u8) ![]u8 {
+        if (path.len >= 2 and path[0] == '~' and path[1] == '/') {
+            const home = std.process.getEnvVarOwned(self.allocator, "HOME") catch |err| {
+                if (err == error.EnvironmentVariableNotFound) {
+                    return try self.allocator.dupe(u8, path);
+                }
+                return err;
+            };
+            defer self.allocator.free(home);
+            return std.fs.path.join(self.allocator, &.{ home, path[2..] });
+        }
+        return try self.allocator.dupe(u8, path);
+    }
+
+    fn setImportError(self: *App, message: []const u8) !void {
+        self.clearImportError();
+        self.ui.import_error = try self.allocator.dupe(u8, message);
+    }
+
+    fn setImportErrorFmt(self: *App, comptime fmt: []const u8, args: anytype) !void {
+        self.clearImportError();
+        self.ui.import_error = try std.fmt.allocPrint(self.allocator, fmt, args);
+    }
+
+    fn clearImportError(self: *App) void {
+        if (self.ui.import_error) |message| {
+            self.allocator.free(message);
+            self.ui.import_error = null;
         }
     }
 
@@ -995,6 +1467,10 @@ pub const App = struct {
                 try self.commitSingleLineEdit();
                 return false;
             },
+            .paste => |text| {
+                try self.ui.edit_input.insertSlice(firstLine(text));
+                return false;
+            },
             .backspace => {
                 self.ui.edit_input.backspace();
                 return false;
@@ -1110,6 +1586,10 @@ pub const App = struct {
             },
             .enter => {
                 try self.ui.body_input.insertByte('\n');
+                return false;
+            },
+            .paste => |text| {
+                try self.ui.body_input.insertSlice(text);
                 return false;
             },
             .backspace => {

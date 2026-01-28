@@ -82,6 +82,7 @@ fn stateLabel(state: app_mod.AppState) []const u8 {
         .normal => "normal",
         .editing => "editing",
         .method_dropdown => "method",
+        .importing => "import",
         .exiting => "exiting",
     };
 }

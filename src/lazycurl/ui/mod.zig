@@ -177,4 +177,8 @@ pub fn render(
         app.ui.output_copy_rect = null;
         app.updateOutputMetrics(0, 0);
     }
+
+    if (app.state == .importing) {
+        components.swagger_import_panel.render(allocator, win, app, theme);
+    }
 }

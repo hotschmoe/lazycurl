@@ -87,6 +87,7 @@ Navigate through the application using the keyboard shortcuts below.
 General
 - `Ctrl+X` or `F10` Quit
 - `Ctrl+R` or `F5` Execute command
+- `Ctrl+I` Import Swagger/OpenAPI (paste/file/URL)
 - `Ctrl+T` Toggle Templates panel
 - `Ctrl+E` Toggle Environments panel
 - `Ctrl+H` Toggle History panel

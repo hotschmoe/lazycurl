@@ -2,6 +2,7 @@ const std = @import("std");
 const metadata = @import("metadata.zig");
 const ids = @import("ids.zig");
 pub const models = @import("models/mod.zig");
+pub const swagger = @import("swagger.zig");
 
 pub const Metadata = metadata.AppMetadata;
 pub const Timestamp = ids.Timestamp;

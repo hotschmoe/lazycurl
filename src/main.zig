@@ -95,6 +95,7 @@ fn handleEvent(
             }
 
             if (key.matchShortcut('r', .{ .ctrl = true }) or key.codepoint == vaxis.Key.f5) {
+                if (app.state == .importing) return;
                 app.applyMethodDropdownSelection();
                 const command = try app.executeCommand();
                 defer app.allocator.free(command);
@@ -183,13 +184,14 @@ fn toKeyInput(key: vaxis.Key) ?app_mod.KeyInput {
     if (key.codepoint == vaxis.Key.f6) return .{ .code = .f6, .mods = modsFromKey(key) };
     if (key.codepoint == vaxis.Key.f10) return .{ .code = .f10, .mods = modsFromKey(key) };
 
-    if (!key.mods.ctrl) {
-        if (key.text) |text| {
-            if (text.len == 1) {
-                const byte: u8 = text[0];
-                if (std.ascii.isPrint(byte)) {
-                    return .{ .code = .{ .char = byte }, .mods = modsFromKey(key) };
-                }
+    if (key.text) |text| {
+        if (text.len > 1) {
+            return .{ .code = .{ .paste = text }, .mods = modsFromKey(key) };
+        }
+        if (!key.mods.ctrl and text.len == 1) {
+            const byte: u8 = text[0];
+            if (std.ascii.isPrint(byte)) {
+                return .{ .code = .{ .char = byte }, .mods = modsFromKey(key) };
             }
         }
     }
