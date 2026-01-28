@@ -20,10 +20,22 @@ pub fn render(
     app.ui.output_copy_rect = null;
 
     const status_style = httpStatusStyle(runtime, theme);
+    const copy_style = copyLabelStyle(runtime, app, theme);
+    const copy_label = if (app.ui.output_copy_until_ms > std.time.milliTimestamp()) "[Copied]" else "[Copy]";
     var status_buf: [64]u8 = undefined;
     const status_label = httpStatusLabel(runtime, &status_buf);
-    const inner = boxed.begin(allocator, win, "Output", status_label, theme.border, theme.title, status_style);
-    drawHeader(inner, runtime, theme, app);
+    const inner = boxed.beginWithBottomLabel(
+        allocator,
+        win,
+        "Output",
+        status_label,
+        copy_label,
+        theme.border,
+        theme.title,
+        status_style,
+        copy_style,
+    );
+    app.ui.output_copy_rect = bottomLabelRect(win, copy_label);
 
     const status_line = if (runtime.active_job != null)
         "Status: running"
@@ -52,12 +64,11 @@ pub fn render(
         meta_count += 1;
     }
 
-    const bottom_reserved: u16 = if (inner.height > 0) 1 else 0;
-    const reserved_width = maxMetaWidth(meta_lines[0..meta_count], inner.height - bottom_reserved);
+    const reserved_width = maxMetaWidth(meta_lines[0..meta_count], inner.height);
     drawMetaLines(inner, meta_lines[0..meta_count], inner.height);
 
     const body_start: u16 = 0;
-    const body_height: u16 = if (inner.height > 0) inner.height - 1 else 0;
+    const body_height: u16 = inner.height;
     const stdout_text = runtimeOutput(runtime, .stdout);
     const stderr_text = runtimeOutput(runtime, .stderr);
     const total_lines = countLines(stdout_text) + countLines(stderr_text) + 1;
@@ -96,27 +107,25 @@ fn runtimeOutput(runtime: *app_mod.Runtime, kind: OutputKind) []const u8 {
     return "";
 }
 
-fn drawHeader(win: vaxis.Window, runtime: *app_mod.Runtime, theme: theme_mod.Theme, app: *app_mod.App) void {
-    if (win.height == 0) return;
-    const now_ms = std.time.milliTimestamp();
-    const copied = now_ms <= app.ui.output_copy_until_ms;
-    const label = if (copied) "[Copied]" else "[Copy]";
-    const col = copyLabelCol(win.width) orelse return;
-    const has_output = runtime.outputBody().len > 0 or runtime.outputError().len > 0;
-    const style = if (!has_output) theme.muted else if (copied) theme.success else theme.accent;
-    const segment = vaxis.Segment{ .text = label, .style = style };
-    _ = win.print(&.{segment}, .{ .row_offset = win.height - 1, .col_offset = col, .wrap = .none });
-    app.ui.output_copy_rect = .{
-        .x = win.x_off + @as(i17, @intCast(col)),
-        .y = win.y_off + @as(i17, @intCast(win.height - 1)),
-        .width = @intCast(label.len),
+fn bottomLabelRect(win: vaxis.Window, label: []const u8) ?app_mod.PanelRect {
+    if (label.len == 0 or win.width == 0 or win.height == 0) return null;
+    const padded = label.len + 4 < win.width;
+    const label_width: u16 = @intCast(if (padded) label.len + 2 else label.len);
+    if (1 + label_width >= win.width) return null;
+    const row: u16 = win.height - 1;
+    return .{
+        .x = win.x_off + 1,
+        .y = win.y_off + @as(i17, @intCast(row)),
+        .width = label_width,
         .height = 1,
     };
 }
 
-fn copyLabelCol(width: u16) ?u16 {
-    if (width <= 1) return null;
-    return 1;
+fn copyLabelStyle(runtime: *app_mod.Runtime, app: *app_mod.App, theme: theme_mod.Theme) vaxis.Style {
+    const now_ms = std.time.milliTimestamp();
+    const copied = now_ms <= app.ui.output_copy_until_ms;
+    const has_output = runtime.outputBody().len > 0 or runtime.outputError().len > 0;
+    return if (!has_output) theme.muted else if (copied) theme.success else theme.accent;
 }
 
 fn httpStatusLabel(runtime: *app_mod.Runtime, buf: []u8) []const u8 {
