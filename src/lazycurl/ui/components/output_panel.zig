@@ -18,12 +18,14 @@ pub fn render(
         .height = win.height,
     };
     app.ui.output_copy_rect = null;
+    app.ui.output_format_rect = null;
 
     const copy_style = copyLabelStyle(runtime, app, theme);
     const copy_label = if (app.ui.output_copy_until_ms > std.time.milliTimestamp()) "[Copied]" else "[Copy]";
-    const stdout_text = runtimeOutput(runtime, .stdout);
+    const stdout_raw = runtimeOutput(runtime, .stdout);
+    const stdout_text = app.ui.output_override orelse stdout_raw;
 
-    const status_code = parseStatusMarkerInText(stdout_text) orelse parseLastHttpCode(stdout_text);
+    const status_code = parseStatusMarkerInText(stdout_raw) orelse parseLastHttpCode(stdout_raw);
     var status_buf: [32]u8 = undefined;
     const status_label = statusBorderLabel(runtime, status_code, &status_buf);
     const status_style = httpStatusStyleFromCode(status_code, theme, runtime.active_job != null);
@@ -50,6 +52,12 @@ pub fn render(
         copy_style,
     );
     app.ui.output_copy_rect = bottomLabelRect(win, copy_label);
+    const format_enabled = stdout_text.len > 0;
+    const format_style = if (format_enabled) theme.accent else theme.muted;
+    app.ui.output_format_rect = if (format_enabled)
+        formatLabelRect(win, copy_label, "[JSON]", format_style, theme.border)
+    else
+        null;
 
     const body_start: u16 = 0;
     const body_height: u16 = inner.height;
@@ -102,6 +110,58 @@ fn bottomLabelRect(win: vaxis.Window, label: []const u8) ?app_mod.PanelRect {
         .width = label_width,
         .height = 1,
     };
+}
+
+fn formatLabelRect(
+    win: vaxis.Window,
+    left_label: []const u8,
+    label: []const u8,
+    text_style: vaxis.Style,
+    border_style: vaxis.Style,
+) ?app_mod.PanelRect {
+    if (label.len == 0 or win.width == 0 or win.height == 0) return null;
+    const padded_left = left_label.len + 4 < win.width;
+    const left_width: u16 = @intCast(if (padded_left) left_label.len + 2 else left_label.len);
+    if (left_width == 0 or 1 + left_width >= win.width) return null;
+    const start_col: u16 = 1 + left_width + 1;
+    if (start_col >= win.width) return null;
+    const padded = label.len + 4 < win.width;
+    const label_width: u16 = @intCast(if (padded) label.len + 2 else label.len);
+    if (label_width == 0) return null;
+    if (start_col + label_width >= win.width) return null;
+    drawBottomLabel(win, start_col, label, text_style, border_style, padded);
+    const row: u16 = win.height - 1;
+    return .{
+        .x = win.x_off + @as(i17, @intCast(start_col)),
+        .y = win.y_off + @as(i17, @intCast(row)),
+        .width = label_width,
+        .height = 1,
+    };
+}
+
+fn drawBottomLabel(
+    win: vaxis.Window,
+    col: u16,
+    text: []const u8,
+    text_style: vaxis.Style,
+    border_style: vaxis.Style,
+    padded: bool,
+) void {
+    if (text.len == 0 or col >= win.width or win.height == 0) return;
+    const row: u16 = win.height - 1;
+    if (padded) {
+        const segments = [_]vaxis.Segment{
+            .{ .text = " ", .style = border_style },
+            .{ .text = text, .style = text_style },
+            .{ .text = " ", .style = border_style },
+        };
+        _ = win.print(segments[0..], .{ .row_offset = row, .col_offset = col, .wrap = .none });
+        return;
+    }
+    const segments = [_]vaxis.Segment{
+        .{ .text = text, .style = text_style },
+    };
+    _ = win.print(segments[0..], .{ .row_offset = row, .col_offset = col, .wrap = .none });
 }
 
 fn copyLabelStyle(runtime: *app_mod.Runtime, app: *app_mod.App, theme: theme_mod.Theme) vaxis.Style {

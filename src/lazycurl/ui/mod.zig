@@ -185,6 +185,7 @@ pub fn render(
     } else {
         app.ui.output_rect = null;
         app.ui.output_copy_rect = null;
+        app.ui.output_format_rect = null;
         app.updateOutputMetrics(0, 0);
     }
 

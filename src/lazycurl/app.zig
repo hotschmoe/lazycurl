@@ -202,8 +202,10 @@ pub const UiState = struct {
     output_follow: bool = false,
     output_rect: ?PanelRect = null,
     output_copy_rect: ?PanelRect = null,
+    output_format_rect: ?PanelRect = null,
     command_copy_rect: ?PanelRect = null,
     output_copy_until_ms: i64 = 0,
+    output_override: ?[]u8 = null,
     body_mode: BodyEditMode = .insert,
     import_source: ImportSource = .paste,
     import_focus: ImportFocus = .input,
@@ -402,6 +404,10 @@ pub const App = struct {
         if (self.ui.import_error) |message| {
             self.allocator.free(message);
             self.ui.import_error = null;
+        }
+        if (self.ui.output_override) |payload| {
+            self.allocator.free(payload);
+            self.ui.output_override = null;
         }
     }
 
@@ -1679,6 +1685,45 @@ pub const App = struct {
         }
     }
 
+    pub fn clearOutputOverride(self: *App) void {
+        if (self.ui.output_override) |payload| {
+            self.allocator.free(payload);
+            self.ui.output_override = null;
+        }
+    }
+
+    pub fn formatOutputJson(self: *App, runtime: *Runtime) void {
+        self.clearOutputOverride();
+        const source = runtime.outputBody();
+        if (source.len == 0) return;
+
+        const body_start = findBodyStart(source);
+        const prefix = source[0..body_start];
+        const body = source[body_start..];
+        const cleaned_body = stripStatusMarkerLines(self.allocator, body) orelse body;
+        defer if (cleaned_body.ptr != body.ptr) self.allocator.free(cleaned_body);
+        const trimmed = std.mem.trim(u8, cleaned_body, " \t\r\n");
+        if (trimmed.len == 0) return;
+
+        var arena = std.heap.ArenaAllocator.init(self.allocator);
+        defer arena.deinit();
+        const parsed = std.json.parseFromSlice(std.json.Value, arena.allocator(), trimmed, .{}) catch return;
+        const formatted_body = std.json.Stringify.valueAlloc(self.allocator, parsed.value, .{ .whitespace = .indent_2 }) catch return;
+
+        if (prefix.len == 0) {
+            self.ui.output_override = formatted_body;
+        } else {
+            const combined = std.fmt.allocPrint(self.allocator, "{s}{s}", .{ prefix, formatted_body }) catch {
+                self.allocator.free(formatted_body);
+                return;
+            };
+            self.allocator.free(formatted_body);
+            self.ui.output_override = combined;
+        }
+        self.ui.output_scroll = 0;
+        self.ui.output_follow = false;
+    }
+
     pub fn resetOutputScroll(self: *App) void {
         self.ui.output_scroll = 0;
         self.ui.output_follow = false;
@@ -1721,6 +1766,29 @@ pub const App = struct {
             self.ui.output_total_lines - view
         else
             0;
+    }
+
+    fn findBodyStart(text: []const u8) usize {
+        if (std.mem.indexOf(u8, text, "\r\n\r\n")) |idx| return idx + 4;
+        if (std.mem.indexOf(u8, text, "\n\n")) |idx| return idx + 2;
+        return 0;
+    }
+
+    fn stripStatusMarkerLines(allocator: std.mem.Allocator, text: []const u8) ?[]u8 {
+        const marker = "__LAZYCURL_HTTP_STATUS__";
+        if (std.mem.indexOf(u8, text, marker) == null) return null;
+
+        var out = std.ArrayList(u8).empty;
+        var it = std.mem.splitScalar(u8, text, '\n');
+        var first = true;
+        while (it.next()) |line_raw| {
+            const line = std.mem.trim(u8, line_raw, "\r");
+            if (std.mem.startsWith(u8, line, marker)) continue;
+            if (!first) _ = out.append(allocator, '\n') catch return null;
+            first = false;
+            _ = out.appendSlice(allocator, line_raw) catch return null;
+        }
+        return out.toOwnedSlice(allocator) catch null;
     }
 
     pub fn markOutputCopied(self: *App) void {
@@ -2081,6 +2149,7 @@ pub const App = struct {
         const cloned = try cloneCommand(self.allocator, &self.id_generator, &self.history.items[idx]);
         self.current_command.deinit();
         self.current_command = cloned;
+        self.clearOutputOverride();
         if (idx < self.history_results.items.len) {
             if (self.history_results.items[idx]) |*result| {
                 const restored = try cloneExecutionResult(self.allocator, result);

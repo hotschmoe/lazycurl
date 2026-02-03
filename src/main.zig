@@ -100,6 +100,7 @@ fn handleEvent(
                 const command = try app.executeCommand();
                 defer app.allocator.free(command);
                 _ = app.prepareHistorySnapshot() catch {};
+                app.clearOutputOverride();
                 app.resetOutputScroll();
                 runtime.startExecution(command) catch {
                     app.clearPendingHistorySnapshot();
@@ -123,12 +124,17 @@ fn handleEvent(
                             if (mouse.type == .press) {
                                 if (app.ui.output_copy_rect) |copy_rect| {
                                     if (copy_rect.contains(mouse.col, mouse.row)) {
-                                        const body = runtime.outputBody();
+                                        const body = app.ui.output_override orelse runtime.outputBody();
                                         if (body.len > 0) {
                                             if (vx.copyToSystemClipboard(tty, body, allocator)) |_| {
                                                 app.markOutputCopied();
                                             } else |_| {}
                                         }
+                                    }
+                                }
+                                if (app.ui.output_format_rect) |format_rect| {
+                                    if (format_rect.contains(mouse.col, mouse.row)) {
+                                        app.formatOutputJson(runtime);
                                     }
                                 }
                             }
