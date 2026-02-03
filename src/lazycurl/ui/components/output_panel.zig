@@ -19,60 +19,53 @@ pub fn render(
     };
     app.ui.output_copy_rect = null;
 
-    const status_style = httpStatusStyle(runtime, theme);
     const copy_style = copyLabelStyle(runtime, app, theme);
     const copy_label = if (app.ui.output_copy_until_ms > std.time.milliTimestamp()) "[Copied]" else "[Copy]";
-    var status_buf: [64]u8 = undefined;
-    const status_label = httpStatusLabel(runtime, &status_buf);
-    const inner = boxed.beginWithBottomLabel(
+    const stdout_raw = runtimeOutput(runtime, .stdout);
+    const stderr_raw = runtimeOutput(runtime, .stderr);
+    const stdout_text = sanitizeOutput(allocator, stdout_raw);
+    const stderr_text = sanitizeOutput(allocator, stderr_raw);
+    defer releaseSanitized(allocator, stdout_text);
+    defer releaseSanitized(allocator, stderr_text);
+
+    const stdout_filtered = stripStatusMarker(allocator, stdout_text.text);
+    const stderr_filtered = stripStatusMarker(allocator, stderr_text.text);
+    defer releaseStatusFiltered(allocator, stdout_filtered);
+    defer releaseStatusFiltered(allocator, stderr_filtered);
+
+    const status_code = stdout_filtered.code orelse stderr_filtered.code orelse
+        parseLastHttpCode(stdout_filtered.text) orelse parseLastHttpCode(stderr_filtered.text);
+    var status_buf: [32]u8 = undefined;
+    const status_label = statusBorderLabel(runtime, status_code, &status_buf);
+    const status_style = httpStatusStyleFromCode(status_code, theme, runtime.active_job != null);
+    var time_buf: [32]u8 = undefined;
+    const time_label = timeBorderLabel(runtime, &time_buf);
+    var right_labels_buf: [2]boxed.RightLabel = undefined;
+    var right_count: usize = 0;
+    if (status_label.len > 0) {
+        right_labels_buf[right_count] = .{ .text = status_label, .style = status_style };
+        right_count += 1;
+    }
+    if (time_label.len > 0) {
+        right_labels_buf[right_count] = .{ .text = time_label, .style = theme.muted };
+        right_count += 1;
+    }
+    const inner = boxed.beginWithBottomLabelRightLabels(
         allocator,
         win,
         "Output",
-        status_label,
+        right_labels_buf[0..right_count],
         copy_label,
         theme.border,
         theme.title,
-        status_style,
         copy_style,
     );
     app.ui.output_copy_rect = bottomLabelRect(win, copy_label);
 
-    const status_line = if (runtime.active_job != null)
-        "Status: running"
-    else if (runtime.last_result != null)
-        "Status: complete"
-    else
-        "Status: idle";
-
-    var meta_lines: [3]MetaLine = undefined;
-    var meta_count: usize = 0;
-    meta_lines[meta_count] = .{ .text = status_line, .style = status_style, .row = 0 };
-    meta_count += 1;
-
-    if (runtime.last_result) |result| {
-        const exit_line = if (result.exit_code) |code|
-            std.fmt.allocPrint(allocator, "Exit: {d}", .{code}) catch return
-        else
-            std.fmt.allocPrint(allocator, "Exit: unknown", .{}) catch return;
-        const exit_style = if (result.exit_code != null and result.exit_code.? == 0) theme.success else theme.error_style;
-        meta_lines[meta_count] = .{ .text = exit_line, .style = exit_style, .row = 1 };
-        meta_count += 1;
-
-        const duration_ms = result.duration_ns / std.time.ns_per_ms;
-        const dur_line = std.fmt.allocPrint(allocator, "Time: {d} ms", .{duration_ms}) catch return;
-        meta_lines[meta_count] = .{ .text = dur_line, .style = theme.muted, .row = 2 };
-        meta_count += 1;
-    }
-
-    const reserved_width = maxMetaWidth(meta_lines[0..meta_count], inner.height);
-    drawMetaLines(inner, meta_lines[0..meta_count], inner.height);
-
     const body_start: u16 = 0;
     const body_height: u16 = inner.height;
-    const stdout_text = runtimeOutput(runtime, .stdout);
-    const stderr_text = runtimeOutput(runtime, .stderr);
-    const total_lines = countLines(stdout_text) + countLines(stderr_text) + 1;
-    const content_width: u16 = if (inner.width > reserved_width) inner.width - reserved_width else 0;
+    const total_lines = countLines(stdout_filtered.text) + countLines(stderr_filtered.text) + 1;
+    const content_width: u16 = inner.width;
     app.updateOutputMetrics(total_lines, body_height);
     if (body_height > 0 and content_width > 0) {
 
@@ -80,8 +73,8 @@ pub fn render(
             inner,
             body_start,
             body_height,
-            stdout_text,
-            stderr_text,
+            stdout_filtered.text,
+            stderr_filtered.text,
             app.ui.output_scroll,
             theme,
             content_width,
@@ -90,6 +83,14 @@ pub fn render(
 }
 
 const OutputKind = enum { stdout, stderr };
+
+const status_marker_prefix = "__LAZYCURL_HTTP_STATUS__";
+
+const StatusFilteredText = struct {
+    text: []const u8,
+    owned: ?[]u8 = null,
+    code: ?u16 = null,
+};
 
 fn runtimeOutput(runtime: *app_mod.Runtime, kind: OutputKind) []const u8 {
     if (runtime.active_job != null) {
@@ -128,51 +129,79 @@ fn copyLabelStyle(runtime: *app_mod.Runtime, app: *app_mod.App, theme: theme_mod
     return if (!has_output) theme.muted else if (copied) theme.success else theme.accent;
 }
 
-fn httpStatusLabel(runtime: *app_mod.Runtime, buf: []u8) []const u8 {
-    if (runtime.active_job != null) return "";
-    if (runtime.last_result == null) return "";
-    const stdout_text = runtime.last_result.?.stdout;
-    const stderr_text = runtime.last_result.?.stderr;
-    if (parseLastHttpStatus(stdout_text, buf)) |label| return label;
-    if (parseLastHttpStatus(stderr_text, buf)) |label| return label;
+fn releaseStatusFiltered(allocator: std.mem.Allocator, filtered: StatusFilteredText) void {
+    if (filtered.owned) |buf| allocator.free(buf);
+}
+
+fn stripStatusMarker(allocator: std.mem.Allocator, text: []const u8) StatusFilteredText {
+    if (!hasStatusMarkerLine(text, status_marker_prefix)) return .{ .text = text };
+
+    var out = std.ArrayList(u8).empty;
+    defer out.deinit(allocator);
+    var last_code: ?u16 = null;
+    var first = true;
+
+    var it = std.mem.splitScalar(u8, text, '\n');
+    while (it.next()) |line| {
+        if (std.mem.startsWith(u8, line, status_marker_prefix)) {
+            if (parseStatusMarkerLine(line)) |code| last_code = code;
+            continue;
+        }
+        if (!first) {
+            _ = out.append(allocator, '\n') catch return .{ .text = text, .code = last_code };
+        } else {
+            first = false;
+        }
+        _ = out.appendSlice(allocator, line) catch return .{ .text = text, .code = last_code };
+    }
+
+    const owned = out.toOwnedSlice(allocator) catch return .{ .text = text, .code = last_code };
+    return .{ .text = owned, .owned = owned, .code = last_code };
+}
+
+fn hasStatusMarkerLine(text: []const u8, marker: []const u8) bool {
+    var idx: usize = 0;
+    while (std.mem.indexOfPos(u8, text, idx, marker)) |pos| {
+        if (pos == 0 or text[pos - 1] == '\n') return true;
+        idx = pos + marker.len;
+    }
+    return false;
+}
+
+fn parseStatusMarkerLine(line: []const u8) ?u16 {
+    if (!std.mem.startsWith(u8, line, status_marker_prefix)) return null;
+    const rest = std.mem.trim(u8, line[status_marker_prefix.len..], " \t\r");
+    var idx: usize = 0;
+    while (idx < rest.len and std.ascii.isDigit(rest[idx])) : (idx += 1) {}
+    if (idx == 0) return null;
+    return std.fmt.parseInt(u16, rest[0..idx], 10) catch null;
+}
+
+fn httpStatusLabelFromCode(code: ?u16, buf: []u8) []const u8 {
+    if (code) |value| {
+        return std.fmt.bufPrint(buf, "HTTP {d}", .{value}) catch "";
+    }
     return "";
 }
 
-fn parseLastHttpStatus(text: []const u8, buf: []u8) ?[]const u8 {
-    var last_code: ?u16 = null;
-    var last_reason: []const u8 = "";
-    var it = std.mem.splitScalar(u8, text, '\n');
-    while (it.next()) |line_raw| {
-        const line = std.mem.trim(u8, line_raw, "\r");
-        if (!std.mem.startsWith(u8, line, "HTTP/")) continue;
-        const space_idx = std.mem.indexOfScalar(u8, line, ' ') orelse continue;
-        var idx = space_idx + 1;
-        while (idx < line.len and line[idx] == ' ') : (idx += 1) {}
-        const start = idx;
-        while (idx < line.len and std.ascii.isDigit(line[idx])) : (idx += 1) {}
-        if (start == idx) continue;
-        const code = std.fmt.parseInt(u16, line[start..idx], 10) catch continue;
-        var reason = line[idx..];
-        reason = std.mem.trim(u8, reason, " ");
-        last_code = code;
-        last_reason = reason;
-    }
-    if (last_code == null) return null;
-    const reason_trim = if (last_reason.len > 24) last_reason[0..24] else last_reason;
-    if (reason_trim.len > 0) {
-        return std.fmt.bufPrint(buf, "HTTP {d} {s}", .{ last_code.?, reason_trim }) catch null;
-    }
-    return std.fmt.bufPrint(buf, "HTTP {d}", .{last_code.?}) catch null;
+fn statusBorderLabel(runtime: *app_mod.Runtime, code: ?u16, buf: []u8) []const u8 {
+    if (code != null) return httpStatusLabelFromCode(code, buf);
+    if (runtime.active_job != null) return "Status: running";
+    if (runtime.last_result != null) return "Status: complete";
+    return "";
 }
 
-fn httpStatusStyle(runtime: *app_mod.Runtime, theme: theme_mod.Theme) vaxis.Style {
-    if (runtime.active_job != null) return theme.accent;
-    if (runtime.last_result == null) return theme.muted;
-    const stdout_text = runtime.last_result.?.stdout;
-    const stderr_text = runtime.last_result.?.stderr;
-    if (parseLastHttpCode(stdout_text)) |code| return statusStyleForCode(code, theme);
-    if (parseLastHttpCode(stderr_text)) |code| return statusStyleForCode(code, theme);
-    return theme.text;
+fn timeBorderLabel(runtime: *app_mod.Runtime, buf: []u8) []const u8 {
+    if (runtime.active_job != null) return "";
+    const result = runtime.last_result orelse return "";
+    const duration_ms = result.duration_ns / std.time.ns_per_ms;
+    return std.fmt.bufPrint(buf, "Time: {d} ms", .{duration_ms}) catch "";
+}
+
+fn httpStatusStyleFromCode(code: ?u16, theme: theme_mod.Theme, active: bool) vaxis.Style {
+    if (active) return theme.accent;
+    if (code) |value| return statusStyleForCode(value, theme);
+    return theme.muted;
 }
 
 fn parseLastHttpCode(text: []const u8) ?u16 {
@@ -180,16 +209,30 @@ fn parseLastHttpCode(text: []const u8) ?u16 {
     var it = std.mem.splitScalar(u8, text, '\n');
     while (it.next()) |line_raw| {
         const line = std.mem.trim(u8, line_raw, "\r");
-        if (!std.mem.startsWith(u8, line, "HTTP/")) continue;
-        const space_idx = std.mem.indexOfScalar(u8, line, ' ') orelse continue;
-        var idx = space_idx + 1;
-        while (idx < line.len and line[idx] == ' ') : (idx += 1) {}
-        const start = idx;
-        while (idx < line.len and std.ascii.isDigit(line[idx])) : (idx += 1) {}
-        if (start == idx) continue;
-        last_code = std.fmt.parseInt(u16, line[start..idx], 10) catch continue;
+        const parsed = parseHttpStatusLine(line) orelse continue;
+        last_code = parsed.code;
     }
     return last_code;
+}
+
+const ParsedHttpStatus = struct {
+    code: u16,
+    reason: []const u8,
+};
+
+fn parseHttpStatusLine(line: []const u8) ?ParsedHttpStatus {
+    const start_idx = std.mem.indexOf(u8, line, "HTTP/") orelse return null;
+    const view = line[start_idx..];
+    const space_idx = std.mem.indexOfScalar(u8, view, ' ') orelse return null;
+    var idx = space_idx + 1;
+    while (idx < view.len and view[idx] == ' ') : (idx += 1) {}
+    const start = idx;
+    while (idx < view.len and std.ascii.isDigit(view[idx])) : (idx += 1) {}
+    if (start == idx) return null;
+    const code = std.fmt.parseInt(u16, view[start..idx], 10) catch return null;
+    var reason = view[idx..];
+    reason = std.mem.trim(u8, reason, " ");
+    return .{ .code = code, .reason = reason };
 }
 
 fn statusStyleForCode(code: u16, theme: theme_mod.Theme) vaxis.Style {
@@ -199,36 +242,6 @@ fn statusStyleForCode(code: u16, theme: theme_mod.Theme) vaxis.Style {
         5 => theme.error_style,
         else => theme.text,
     };
-}
-
-const MetaLine = struct {
-    text: []const u8,
-    style: vaxis.Style,
-    row: u16,
-};
-
-fn drawMetaLines(win: vaxis.Window, lines: []const MetaLine, height: u16) void {
-    for (lines) |line| {
-        if (line.row >= height) continue;
-        const col = rightJustifyCol(win.width, line.text.len);
-        const segment = vaxis.Segment{ .text = line.text, .style = line.style };
-        _ = win.print(&.{segment}, .{ .row_offset = line.row, .col_offset = col, .wrap = .none });
-    }
-}
-
-fn rightJustifyCol(width: u16, text_len: usize) u16 {
-    if (text_len >= width) return 0;
-    return width - @as(u16, @intCast(text_len));
-}
-
-fn maxMetaWidth(lines: []const MetaLine, height: u16) u16 {
-    var max_len: usize = 0;
-    for (lines) |line| {
-        if (line.row >= height) continue;
-        if (line.text.len > max_len) max_len = line.text.len;
-    }
-    if (max_len == 0) return 0;
-    return @as(u16, @intCast(max_len + 1));
 }
 
 fn countLines(text: []const u8) usize {
@@ -308,4 +321,73 @@ fn drawLineClipped(win: vaxis.Window, row: u16, text: []const u8, style: vaxis.S
     const limit: usize = @intCast(max_width);
     const slice = if (text.len > limit) text[0..limit] else text;
     drawLine(win, row, slice, style);
+}
+
+const SanitizedText = struct {
+    text: []const u8,
+    owned: ?[]u8 = null,
+};
+
+fn releaseSanitized(allocator: std.mem.Allocator, sanitized: SanitizedText) void {
+    if (sanitized.owned) |buf| allocator.free(buf);
+}
+
+fn sanitizeOutput(allocator: std.mem.Allocator, text: []const u8) SanitizedText {
+    var needs = false;
+    for (text) |byte| {
+        if (byte == 0x1b or byte == '\r' or (byte < 0x20 and byte != '\n' and byte != '\t')) {
+            needs = true;
+            break;
+        }
+    }
+    if (!needs) return .{ .text = text };
+
+    var out = std.ArrayList(u8).empty;
+    var i: usize = 0;
+    while (i < text.len) {
+        const byte = text[i];
+        if (byte == 0x1b) {
+            if (i + 1 < text.len and text[i + 1] == '[') {
+                i += 2;
+                while (i < text.len) : (i += 1) {
+                    const b = text[i];
+                    if (b >= 0x40 and b <= 0x7e) {
+                        i += 1;
+                        break;
+                    }
+                }
+                continue;
+            }
+            if (i + 1 < text.len and text[i + 1] == ']') {
+                i += 2;
+                while (i < text.len) : (i += 1) {
+                    const b = text[i];
+                    if (b == 0x07) {
+                        i += 1;
+                        break;
+                    }
+                    if (b == 0x1b and i + 1 < text.len and text[i + 1] == '\\') {
+                        i += 2;
+                        break;
+                    }
+                }
+                continue;
+            }
+            i += 1;
+            continue;
+        }
+        if (byte == '\r') {
+            _ = out.append(allocator, '\n') catch return .{ .text = text };
+            i += 1;
+            continue;
+        }
+        if (byte < 0x20 and byte != '\n' and byte != '\t') {
+            i += 1;
+            continue;
+        }
+        _ = out.append(allocator, byte) catch return .{ .text = text };
+        i += 1;
+    }
+    const owned = out.toOwnedSlice(allocator) catch return .{ .text = text };
+    return .{ .text = owned, .owned = owned };
 }

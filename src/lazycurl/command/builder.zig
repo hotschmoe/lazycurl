@@ -8,7 +8,24 @@ const HttpMethod = core.models.command.HttpMethod;
 const Environment = core.models.environment.Environment;
 
 pub const CommandBuilder = struct {
+    const status_marker_prefix = "__LAZYCURL_HTTP_STATUS__";
+    const status_marker_format = "\\n" ++ status_marker_prefix ++ "%{http_code}\\n";
+    const include_flag = "-i";
+
     pub fn build(allocator: Allocator, command: *const CurlCommand, environment: *const Environment) ![]u8 {
+        return buildInternal(allocator, command, environment, false);
+    }
+
+    pub fn buildForExecution(allocator: Allocator, command: *const CurlCommand, environment: *const Environment) ![]u8 {
+        return buildInternal(allocator, command, environment, true);
+    }
+
+    fn buildInternal(
+        allocator: Allocator,
+        command: *const CurlCommand,
+        environment: *const Environment,
+        include_status_marker: bool,
+    ) ![]u8 {
         var args = try std.ArrayList([]u8).initCapacity(allocator, 8);
         defer {
             for (args.items) |arg| allocator.free(arg);
@@ -17,13 +34,29 @@ pub const CommandBuilder = struct {
 
         try args.append(allocator, try allocator.dupe(u8, "curl"));
 
+        var has_write_out = false;
+        var has_include = false;
         for (command.options.items) |option| {
             if (!option.enabled) continue;
+            if (include_status_marker and isIncludeFlag(option.flag)) {
+                has_include = true;
+            }
+            if (include_status_marker and isWriteOutFlag(option.flag)) {
+                has_write_out = true;
+                if (try appendWriteOutOption(allocator, &args, option, environment)) continue;
+            }
             try args.append(allocator, try allocator.dupe(u8, option.flag));
             if (option.value) |value| {
                 const substituted = try substituteEnvVars(allocator, value, environment);
                 try args.append(allocator, substituted);
             }
+        }
+        if (include_status_marker and !has_include) {
+            try args.append(allocator, try allocator.dupe(u8, include_flag));
+        }
+        if (include_status_marker and !has_write_out) {
+            try args.append(allocator, try allocator.dupe(u8, "-w"));
+            try args.append(allocator, try allocator.dupe(u8, status_marker_format));
         }
 
         if (command.method) |method| {
@@ -75,6 +108,44 @@ pub const CommandBuilder = struct {
         try args.append(allocator, try allocator.dupe(u8, url_with_query));
 
         return formatCurlCommand(allocator, args.items);
+    }
+
+    fn appendWriteOutOption(
+        allocator: Allocator,
+        args: *std.ArrayList([]u8),
+        option: core.models.command.CurlOption,
+        environment: *const Environment,
+    ) !bool {
+        if (writeOutInlineValue(option.flag)) |inline_value| {
+            if (std.mem.indexOf(u8, inline_value, status_marker_prefix) != null) {
+                try args.append(allocator, try allocator.dupe(u8, option.flag));
+                return true;
+            }
+            const prefix = if (std.mem.startsWith(u8, option.flag, "--write-out=")) "--write-out=" else "-w";
+            const new_flag = try std.fmt.allocPrint(allocator, "{s}{s}{s}", .{
+                prefix,
+                inline_value,
+                status_marker_format,
+            });
+            try args.append(allocator, new_flag);
+            return true;
+        }
+
+        try args.append(allocator, try allocator.dupe(u8, option.flag));
+        if (option.value) |value| {
+            const substituted = try substituteEnvVars(allocator, value, environment);
+            if (std.mem.indexOf(u8, substituted, status_marker_prefix) != null) {
+                try args.append(allocator, substituted);
+                return true;
+            }
+            const combined = try std.fmt.allocPrint(allocator, "{s}{s}", .{ substituted, status_marker_format });
+            allocator.free(substituted);
+            try args.append(allocator, combined);
+            return true;
+        }
+
+        try args.append(allocator, try allocator.dupe(u8, status_marker_format));
+        return true;
     }
 
     fn buildUrlWithQuery(allocator: Allocator, command: *const CurlCommand, environment: *const Environment) ![]u8 {
@@ -231,6 +302,26 @@ pub const CommandBuilder = struct {
     }
 };
 
+fn isWriteOutFlag(flag: []const u8) bool {
+    if (std.mem.eql(u8, flag, "-w") or std.mem.eql(u8, flag, "--write-out")) return true;
+    if (std.mem.startsWith(u8, flag, "-w")) return true;
+    return std.mem.startsWith(u8, flag, "--write-out");
+}
+
+fn writeOutInlineValue(flag: []const u8) ?[]const u8 {
+    if (std.mem.startsWith(u8, flag, "--write-out=")) {
+        return flag["--write-out=".len..];
+    }
+    if (std.mem.startsWith(u8, flag, "-w") and flag.len > 2) {
+        return flag[2..];
+    }
+    return null;
+}
+
+fn isIncludeFlag(flag: []const u8) bool {
+    return std.mem.eql(u8, flag, "-i") or std.mem.eql(u8, flag, "--include");
+}
+
 test "build simple command" {
     var generator = core.IdGenerator{};
     var command = try CurlCommand.init(std.testing.allocator, &generator);
@@ -245,6 +336,45 @@ test "build simple command" {
     defer std.testing.allocator.free(result);
 
     try std.testing.expectEqualStrings("curl https://example.com", result);
+}
+
+test "build for execution adds write-out status marker" {
+    var generator = core.IdGenerator{};
+    var command = try CurlCommand.init(std.testing.allocator, &generator);
+    defer command.deinit();
+    command.allocator.free(command.url);
+    command.url = try command.allocator.dupe(u8, "https://example.com");
+
+    var environment = try Environment.init(std.testing.allocator, &generator, "test");
+    defer environment.deinit();
+
+    const result = try CommandBuilder.buildForExecution(std.testing.allocator, &command, &environment);
+    defer std.testing.allocator.free(result);
+
+    try std.testing.expectEqualStrings(
+        "curl -i -w '\\n__LAZYCURL_HTTP_STATUS__%{http_code}\\n' https://example.com",
+        result,
+    );
+}
+
+test "build for execution keeps custom write-out" {
+    var generator = core.IdGenerator{};
+    var command = try CurlCommand.init(std.testing.allocator, &generator);
+    defer command.deinit();
+    command.allocator.free(command.url);
+    command.url = try command.allocator.dupe(u8, "https://example.com");
+    try command.addOption(&generator, "--write-out", "%{http_code}");
+
+    var environment = try Environment.init(std.testing.allocator, &generator, "test");
+    defer environment.deinit();
+
+    const result = try CommandBuilder.buildForExecution(std.testing.allocator, &command, &environment);
+    defer std.testing.allocator.free(result);
+
+    try std.testing.expectEqualStrings(
+        "curl --write-out '%{http_code}\\n__LAZYCURL_HTTP_STATUS__%{http_code}\\n' -i https://example.com",
+        result,
+    );
 }
 
 test "build command with options" {

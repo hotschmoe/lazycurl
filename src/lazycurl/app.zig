@@ -336,8 +336,7 @@ pub const App = struct {
 
     pub fn init(allocator: std.mem.Allocator) !App {
         var generator = core.IdGenerator{};
-        var current_command = try core.models.command.CurlCommand.init(allocator, &generator);
-        try current_command.addOption(&generator, "-i", null);
+        const current_command = try core.models.command.CurlCommand.init(allocator, &generator);
 
         const template_store = try persistence.loadTemplates(allocator, &generator);
         const environments = try persistence.seedEnvironments(allocator, &generator);
@@ -538,6 +537,17 @@ pub const App = struct {
                 .char => |ch| {
                     if (ch == ' ' and self.ui.left_panel == null) {
                         try self.toggleSelectedHeader();
+                        return false;
+                    }
+                },
+                else => {},
+            }
+        }
+        if (self.ui.active_tab == .options) {
+            switch (input.code) {
+                .char => |ch| {
+                    if (ch == ' ' and self.ui.left_panel == null) {
+                        self.toggleSelectedOption();
                         return false;
                     }
                 },
@@ -1281,7 +1291,7 @@ pub const App = struct {
 
     pub fn executeCommand(self: *App) ![]u8 {
         const environment = self.currentEnvironment();
-        return command_builder.builder.CommandBuilder.build(self.allocator, &self.current_command, environment);
+        return command_builder.builder.CommandBuilder.buildForExecution(self.allocator, &self.current_command, environment);
     }
 
     pub fn buildCommandPreview(self: *App, allocator: std.mem.Allocator) ![]u8 {
@@ -2408,6 +2418,17 @@ pub const App = struct {
         header.enabled = !header.enabled;
     }
 
+    fn toggleSelectedOption(self: *App) void {
+        if (self.ui.left_panel != null) return;
+        const selected = switch (self.ui.selected_field) {
+            .options => |idx| idx,
+            else => return,
+        };
+        if (selected >= self.current_command.options.items.len) return;
+        var option = &self.current_command.options.items[selected];
+        option.enabled = !option.enabled;
+    }
+
     fn appendHeader(self: *App, key: []const u8, value: []const u8, enabled: bool) !usize {
         const header = core.models.command.Header{
             .id = self.id_generator.nextId(),
@@ -2649,7 +2670,10 @@ test "execute command builds curl string" {
     const command = try app.executeCommand();
     defer app.allocator.free(command);
 
-    try std.testing.expectEqualStrings("curl -i https://example.com/v1", command);
+    try std.testing.expectEqualStrings(
+        "curl -i -w '\\n__LAZYCURL_HTTP_STATUS__%{http_code}\\n' https://example.com/v1",
+        command,
+    );
 }
 
 /// Temporary bootstrap entry point for the Zig rewrite.
