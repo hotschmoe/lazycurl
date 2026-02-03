@@ -164,9 +164,21 @@ pub const SelectedField = union(enum) {
     options: usize,
 };
 
+pub const NavBox = enum {
+    method,
+    url,
+    headers,
+    body,
+    options,
+    templates,
+    environments,
+    history,
+};
+
 pub const UiState = struct {
     active_tab: Tab = .url,
     selected_field: SelectedField = .{ .url = .url },
+    nav_box: NavBox = .url,
     selected_template_row: ?usize = null,
     selected_environment: ?usize = null,
     selected_history: ?usize = null,
@@ -395,6 +407,7 @@ pub const App = struct {
     }
 
     pub fn handleKey(self: *App, input: KeyInput, runtime: *Runtime) !bool {
+        defer self.syncNavBox();
         switch (self.state) {
             .normal => return self.handleNormalKey(input, runtime),
             .editing => return self.handleEditingKey(input),
@@ -402,6 +415,33 @@ pub const App = struct {
             .importing => return self.handleImportKey(input),
             .exiting => return true,
         }
+    }
+
+    pub fn navBox(self: *const App) NavBox {
+        return self.ui.nav_box;
+    }
+
+    fn syncNavBox(self: *App) void {
+        self.ui.nav_box = computeNavBox(self);
+    }
+
+    fn computeNavBox(self: *const App) NavBox {
+        if (self.ui.left_panel) |panel| {
+            return switch (panel) {
+                .templates => .templates,
+                .environments => .environments,
+                .history => .history,
+            };
+        }
+        return switch (self.ui.selected_field) {
+            .url => |field| switch (field) {
+                .method => .method,
+                .url, .query_param => .url,
+            },
+            .headers => .headers,
+            .body => .body,
+            .options => .options,
+        };
     }
 
     fn handleNormalKey(self: *App, input: KeyInput, runtime: *Runtime) !bool {

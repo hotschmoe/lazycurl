@@ -89,13 +89,13 @@ fn handleEvent(
             vx.queueRefresh();
         },
         .key_press => |key| {
-            if (key.matchShortcut('x', .{ .ctrl = true }) or key.codepoint == vaxis.Key.f10) {
+            const allow_base = app.state == .normal;
+            if (allow_base and (key.matchShortcut('x', .{ .ctrl = true }) or key.codepoint == vaxis.Key.f10)) {
                 running.* = false;
                 return;
             }
 
-            if (key.matchShortcut('r', .{ .ctrl = true }) or key.codepoint == vaxis.Key.f5) {
-                if (app.state == .importing) return;
+            if (allow_base and (key.matchShortcut('r', .{ .ctrl = true }) or key.codepoint == vaxis.Key.f5)) {
                 app.applyMethodDropdownSelection();
                 const command = try app.executeCommand();
                 defer app.allocator.free(command);

@@ -5,22 +5,8 @@ const theme_mod = @import("../theme.zig");
 
 pub fn render(allocator: std.mem.Allocator, win: vaxis.Window, app: *app_mod.App, theme: theme_mod.Theme) void {
     if (win.height == 0) return;
-    if (isBodyEditing(app)) {
-        const left = buildBaseLine(allocator) catch return;
-        const right = buildBodyLine(allocator, app) catch return;
-        const left_len: u16 = @intCast(left.len);
-        const right_len: u16 = @intCast(right.len);
-        if (right_len > 0 and win.width > right_len and win.width > left_len) {
-            const right_col: u16 = win.width - right_len;
-            if (right_col > left_len + 1) {
-                drawLine(win, 0, left, theme.muted);
-                const segment = vaxis.Segment{ .text = right, .style = theme.muted };
-                _ = win.print(&.{segment}, .{ .row_offset = 0, .col_offset = right_col, .wrap = .none });
-                return;
-            }
-        }
-    }
     const line = buildShortcutLine(allocator, app) catch return;
+    if (line.len == 0) return;
     drawLine(win, 0, line, theme.muted);
 }
 
@@ -29,126 +15,207 @@ fn drawLine(win: vaxis.Window, row: u16, text: []const u8, style: vaxis.Style) v
     _ = win.print(&segments, .{ .row_offset = row, .wrap = .none });
 }
 
-fn contextLines(app: *app_mod.App) []const []const u8 {
-    if (app.state == .importing) {
-        return &[_][]const u8{
-            "Tab Next",
-            "Esc Cancel",
-            "Left/Right Source",
-            "Up/Down Folder",
-            "PgUp/PgDn Scroll",
-            "Ctrl+Enter Import",
-        };
+fn buildShortcutLine(allocator: std.mem.Allocator, app: *app_mod.App) ![]const u8 {
+    const context = shortcutLines(app);
+    const base = if (baseAvailable(app)) baseLines() else &[_][]const u8{};
+    return joinLineGroups(allocator, base, context);
+}
+
+fn joinLineGroups(
+    allocator: std.mem.Allocator,
+    first: []const []const u8,
+    second: []const []const u8,
+) ![]const u8 {
+    const total = first.len + second.len;
+    if (total == 0) return "";
+    var joined = try std.ArrayList(u8).initCapacity(allocator, 0);
+    try joined.ensureTotalCapacity(allocator, 64);
+    var idx: usize = 0;
+    for (first) |entry| {
+        if (idx > 0) try joined.appendSlice(allocator, " | ");
+        try joined.appendSlice(allocator, entry);
+        idx += 1;
     }
-    if (app.state == .editing) {
-        if (app.editing_field == .body) {
-            if (app.ui.body_mode == .insert) {
-                return &[_][]const u8{
-                    "Ctrl+S/F2 Save",
-                    "Enter Newline",
-                    "Esc Normal",
-                };
-            }
-            return &[_][]const u8{
-                "i/a Insert",
-                "h/j/k/l Move",
-                "w/b Word",
-                "0/$ Line",
-                "x Delete",
-                "o/O Newline",
-                "Esc Exit",
-            };
-        }
-        return &[_][]const u8{
-            "Enter Save",
-            "Esc Cancel",
-        };
+    for (second) |entry| {
+        if (idx > 0) try joined.appendSlice(allocator, " | ");
+        try joined.appendSlice(allocator, entry);
+        idx += 1;
     }
-    if (app.state == .method_dropdown) {
-        return &[_][]const u8{
-            "Up/Down Select",
-            "Enter Apply",
-            "Esc Cancel",
-        };
-    }
-    if (app.ui.left_panel) |panel| {
-        return switch (panel) {
-            .templates => &[_][]const u8{
-                "Enter Load/Toggle",
-                "F2 Rename",
-                "F3 Save Template",
-                "F4 New Folder",
-                "Delete Remove",
-                "Ctrl+Z Undo Delete",
-                "Ctrl+D Duplicate",
-            },
-            .environments => &[_][]const u8{
-                "Enter Select",
-            },
-            .history => &[_][]const u8{
-                "Enter Load",
-            },
-        };
-    }
-    return &[_][]const u8{
-        "Arrows Navigate",
-        "Tab/Shift+Tab Switch",
-    };
+    return joined.toOwnedSlice(allocator);
 }
 
 fn baseLines() []const []const u8 {
     return &[_][]const u8{
-        "Ctrl+R/F5 Run",
-        "Ctrl+I Import Swagger",
-        "Ctrl+X/F10 Quit",
-        "PgUp/PgDn Scroll Output",
+        "Ctrl+R/F5: Run",
+        "Ctrl+X/F10: Quit",
+        "Ctrl+I: Import Swagger",
+        "PgUp/PgDn: Scroll Output",
     };
 }
 
-fn buildBaseLine(allocator: std.mem.Allocator) ![]const u8 {
-    return joinLines(allocator, baseLines());
+const nav_method = &[_][]const u8{
+    "↑↓←→: Navigate",
+    "Enter: Change",
+    "Tab/Shift+Tab: Switch",
+};
+
+const nav_url = &[_][]const u8{
+    "↑↓←→: Navigate",
+    "Enter: Edit",
+    "Tab/Shift+Tab: Switch",
+};
+
+const nav_headers = &[_][]const u8{
+    "↑↓←→: Navigate",
+    "Enter: Edit",
+    "Space: Toggle",
+    "Tab/Shift+Tab: Switch",
+};
+
+const nav_body = &[_][]const u8{
+    "↑↓←→: Navigate",
+    "Enter: Edit",
+    "Tab/Shift+Tab: Switch",
+};
+
+const nav_options = &[_][]const u8{
+    "↑↓←→: Navigate",
+    "Enter: Edit",
+    "Tab/Shift+Tab: Switch",
+};
+
+const nav_templates = &[_][]const u8{
+    "↑↓←→: Navigate",
+    "Enter: Load",
+    "F2: Rename",
+    "F3: Save Template",
+    "F4: New Folder",
+    "Delete: Remove",
+    "Ctrl+Z: Undo Delete",
+    "Ctrl+D: Duplicate",
+};
+
+const nav_environments = &[_][]const u8{
+    "↑↓←→: Navigate",
+    "Enter: Select",
+};
+
+const nav_history = &[_][]const u8{
+    "↑↓←→: Navigate",
+    "Enter: Load",
+};
+
+const edit_single = &[_][]const u8{
+    "Enter: Save",
+    "Esc: Cancel",
+};
+
+const edit_body_insert = &[_][]const u8{
+    "Ctrl+S/F2: Save",
+    "Esc: Normal",
+    "Enter: Newline",
+};
+
+const edit_body_normal = &[_][]const u8{
+    "i/a: Insert",
+    "h/j/k/l: Move",
+    "w/b: Word",
+    "0/$: Line",
+    "x: Delete",
+    "o/O: Newline",
+    "Esc: Exit",
+};
+
+const method_dropdown = &[_][]const u8{
+    "↑↓: Select",
+    "Enter: Apply",
+    "Esc: Cancel",
+};
+
+const import_source = &[_][]const u8{
+    "←→: Source",
+    "↑↓: Focus",
+    "Tab: Next",
+    "Ctrl+Enter: Import",
+    "Esc: Cancel",
+};
+
+const import_input_paste = &[_][]const u8{
+    "PgUp/PgDn: Scroll",
+    "Tab: Next",
+    "Ctrl+Enter: Import",
+    "Esc: Cancel",
+};
+
+const import_input_line = &[_][]const u8{
+    "↑↓: Focus",
+    "Tab: Next",
+    "Ctrl+Enter: Import",
+    "Esc: Cancel",
+};
+
+const import_folder = &[_][]const u8{
+    "←→: Folder",
+    "↑↓: Focus",
+    "Tab: Next",
+    "Ctrl+Enter: Import",
+    "Esc: Cancel",
+};
+
+const import_actions = &[_][]const u8{
+    "←→: Select",
+    "↑↓: Focus",
+    "Enter: Apply",
+    "Ctrl+Enter: Import",
+    "Esc: Cancel",
+};
+
+fn shortcutLines(app: *app_mod.App) []const []const u8 {
+    return switch (app.state) {
+        .importing => importLines(app),
+        .editing => editingLines(app),
+        .method_dropdown => method_dropdown,
+        .normal => navLines(app),
+        .exiting => &[_][]const u8{},
+    };
 }
 
-fn buildBodyLine(allocator: std.mem.Allocator, app: *app_mod.App) ![]const u8 {
-    const context = contextLines(app);
-    return joinLines(allocator, context);
+fn navLines(app: *app_mod.App) []const []const u8 {
+    return switch (app.navBox()) {
+        .method => nav_method,
+        .url => nav_url,
+        .headers => nav_headers,
+        .body => nav_body,
+        .options => nav_options,
+        .templates => nav_templates,
+        .environments => nav_environments,
+        .history => nav_history,
+    };
 }
 
-fn buildShortcutLine(allocator: std.mem.Allocator, app: *app_mod.App) ![]const u8 {
-    const base = baseLines();
-    const context = contextLines(app);
-    const total = base.len + context.len;
-    if (total == 0) return "";
-
-    var joined = try std.ArrayList(u8).initCapacity(allocator, 0);
-    try joined.ensureTotalCapacity(allocator, 64);
-    var idx: usize = 0;
-    for (base) |entry| {
-        if (idx > 0) try joined.appendSlice(allocator, " | ");
-        try joined.appendSlice(allocator, entry);
-        idx += 1;
+fn editingLines(app: *app_mod.App) []const []const u8 {
+    if (app.editing_field == .body) {
+        return switch (app.ui.body_mode) {
+            .insert => edit_body_insert,
+            .normal => edit_body_normal,
+        };
     }
-    for (context) |entry| {
-        if (idx > 0) try joined.appendSlice(allocator, " | ");
-        try joined.appendSlice(allocator, entry);
-        idx += 1;
-    }
-    return joined.toOwnedSlice(allocator);
+    if (app.editing_field == null) return &[_][]const u8{};
+    return edit_single;
 }
 
-fn joinLines(allocator: std.mem.Allocator, lines: []const []const u8) ![]const u8 {
-    if (lines.len == 0) return "";
-    var joined = try std.ArrayList(u8).initCapacity(allocator, 0);
-    try joined.ensureTotalCapacity(allocator, 64);
-    var idx: usize = 0;
-    for (lines) |entry| {
-        if (idx > 0) try joined.appendSlice(allocator, " | ");
-        try joined.appendSlice(allocator, entry);
-        idx += 1;
-    }
-    return joined.toOwnedSlice(allocator);
+fn importLines(app: *app_mod.App) []const []const u8 {
+    return switch (app.ui.import_focus) {
+        .source => import_source,
+        .input => switch (app.ui.import_source) {
+            .paste => import_input_paste,
+            .file, .url => import_input_line,
+        },
+        .folder => import_folder,
+        .actions => import_actions,
+    };
 }
 
-fn isBodyEditing(app: *app_mod.App) bool {
-    return app.state == .editing and app.editing_field != null and app.editing_field.? == .body;
+fn baseAvailable(app: *app_mod.App) bool {
+    return app.state == .normal;
 }

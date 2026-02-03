@@ -108,7 +108,7 @@ Body editor
 - `Esc` Cancel edits
 
 Templates panel (focused)
-- `Enter` Load/Toggle folder
+- `Enter` Load folder
 - `F2` Rename template or folder
 - `F3` Save template from current command
 - `F4` New folder
