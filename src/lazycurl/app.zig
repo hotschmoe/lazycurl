@@ -198,6 +198,7 @@ pub const UiState = struct {
     import_action_index: usize = 0,
     import_folder_index: usize = 0,
     import_spec_scroll: usize = 0,
+    import_spec_wrap_width: u16 = 0,
     import_spec_input: text_input.TextInput,
     import_path_input: text_input.TextInput,
     import_url_input: text_input.TextInput,
@@ -689,6 +690,7 @@ pub const App = struct {
                     .right => self.setImportSource(nextImportSource(self.ui.import_source)),
                     .down => self.ui.import_focus = .input,
                     .up => self.ui.import_focus = .actions,
+                    .enter => self.ui.import_focus = .input,
                     .char => |ch| {
                         if (ch == 'p') self.setImportSource(.paste);
                         if (ch == 'f') self.setImportSource(.file);
@@ -828,6 +830,7 @@ pub const App = struct {
     fn handleImportSpecInput(self: *App, input: KeyInput) !bool {
         const cursor = self.ui.import_spec_input.cursorPosition();
         const total_lines = countLines(self.ui.import_spec_input.slice());
+        const wrap_width: usize = @intCast(self.ui.import_spec_wrap_width);
         switch (input.code) {
             .enter => try self.ui.import_spec_input.insertByte('\n'),
             .paste => |text| try self.ui.import_spec_input.insertSlice(text),
@@ -836,6 +839,9 @@ pub const App = struct {
             .left => self.ui.import_spec_input.moveLeft(),
             .right => self.ui.import_spec_input.moveRight(),
             .up => {
+                if (wrap_width > 0 and tryMoveWrappedUp(&self.ui.import_spec_input, wrap_width)) {
+                    return false;
+                }
                 if (cursor.row == 0) {
                     self.ui.import_focus = .source;
                 } else {
@@ -843,6 +849,9 @@ pub const App = struct {
                 }
             },
             .down => {
+                if (wrap_width > 0 and tryMoveWrappedDown(&self.ui.import_spec_input, wrap_width)) {
+                    return false;
+                }
                 if (cursor.row + 1 >= total_lines) {
                     self.ui.import_focus = .folder;
                 } else {
@@ -851,8 +860,8 @@ pub const App = struct {
             },
             .home => self.ui.import_spec_input.moveLineHome(),
             .end => self.ui.import_spec_input.moveLineEnd(),
-            .page_up => moveInputLines(&self.ui.import_spec_input, -10),
-            .page_down => moveInputLines(&self.ui.import_spec_input, 10),
+            .page_up => moveWrappedLines(&self.ui.import_spec_input, wrap_width, -10),
+            .page_down => moveWrappedLines(&self.ui.import_spec_input, wrap_width, 10),
             .char => |ch| {
                 if (!input.mods.ctrl) {
                     try self.ui.import_spec_input.insertByte(ch);
@@ -907,6 +916,68 @@ pub const App = struct {
         } else {
             for (0..steps) |_| input.moveDown();
         }
+    }
+
+    fn moveWrappedLines(input: *text_input.TextInput, wrap_width: usize, delta: i32) void {
+        if (wrap_width == 0) {
+            moveInputLines(input, delta);
+            return;
+        }
+        const steps: usize = @intCast(@abs(delta));
+        if (steps == 0) return;
+        if (delta < 0) {
+            for (0..steps) |_| {
+                if (!tryMoveWrappedUp(input, wrap_width)) {
+                    input.moveUp();
+                }
+            }
+        } else {
+            for (0..steps) |_| {
+                if (!tryMoveWrappedDown(input, wrap_width)) {
+                    input.moveDown();
+                }
+            }
+        }
+    }
+
+    fn tryMoveWrappedUp(input: *text_input.TextInput, wrap_width: usize) bool {
+        if (wrap_width == 0) return false;
+        const buf = input.slice();
+        const line_start = lineStartIndex(buf, input.cursor);
+        const col = input.cursor - line_start;
+        if (col < wrap_width) return false;
+        input.setCursor(input.cursor - wrap_width);
+        return true;
+    }
+
+    fn tryMoveWrappedDown(input: *text_input.TextInput, wrap_width: usize) bool {
+        if (wrap_width == 0) return false;
+        const buf = input.slice();
+        const line_start = lineStartIndex(buf, input.cursor);
+        const line_end = lineEndIndex(buf, input.cursor);
+        const line_len = line_end - line_start;
+        const col = input.cursor - line_start;
+        if (col + wrap_width > line_len) return false;
+        input.setCursor(input.cursor + wrap_width);
+        return true;
+    }
+
+    fn lineStartIndex(buf: []const u8, idx: usize) usize {
+        if (buf.len == 0 or idx == 0) return 0;
+        var i = if (idx > 0) idx - 1 else 0;
+        while (true) {
+            if (buf[i] == '\n') return i + 1;
+            if (i == 0) return 0;
+            i -= 1;
+        }
+    }
+
+    fn lineEndIndex(buf: []const u8, idx: usize) usize {
+        var i = idx;
+        while (i < buf.len) : (i += 1) {
+            if (buf[i] == '\n') return i;
+        }
+        return buf.len;
     }
 
     fn firstLine(text: []const u8) []const u8 {

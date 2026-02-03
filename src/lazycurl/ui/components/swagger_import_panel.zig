@@ -123,38 +123,39 @@ fn renderSingleLineInput(
 fn renderMultilineInput(win: vaxis.Window, app: *app_mod.App, theme: theme_mod.Theme, focused: bool) void {
     const input = &app.ui.import_spec_input;
     const buffer = input.slice();
+    app.ui.import_spec_wrap_width = win.width;
     if (!focused and buffer.len == 0) {
         drawLineClipped(win, 0, "Paste OpenAPI/Swagger JSON here", theme.muted);
         return;
     }
-    const cursor = input.cursorPosition();
-    const total_lines = countLines(buffer);
+    const metrics = measureWrapped(buffer, input.cursor, win.width);
+    const total_rows = metrics.total_rows;
     const status_row: ?u16 = if (win.height > 1) win.height - 1 else null;
     const view_rows: usize = if (status_row != null)
         @intCast(win.height - 1)
     else
         @intCast(win.height);
-    ensureScroll(&app.ui.import_spec_scroll, cursor.row, total_lines, @intCast(view_rows));
+    ensureScroll(&app.ui.import_spec_scroll, metrics.cursor_row, total_rows, @intCast(view_rows));
     const scroll = app.ui.import_spec_scroll;
 
     var row: usize = 0;
     while (row < view_rows) : (row += 1) {
         const line_index = scroll + row;
-        const line = lineAt(buffer, line_index);
-        if (line_index == cursor.row) {
+        const line = wrappedSliceAt(buffer, win.width, line_index);
+        if (line_index == metrics.cursor_row) {
             const cursor_style = cursorStyle(theme, focused);
-            drawInputLineWithCursor(win, @intCast(row), line, cursor.col, theme.text, cursor_style, focused and app.ui.cursor_visible);
+            drawInputLineWithCursor(win, @intCast(row), line, metrics.cursor_col, theme.text, cursor_style, focused and app.ui.cursor_visible);
         } else {
             drawLineClipped(win, @intCast(row), line, theme.text);
         }
     }
     if (status_row) |row_index| {
         var info_buf: [64]u8 = undefined;
-        const line_no = cursor.row + 1;
+        const line_no = metrics.cursor_row + 1;
         const info = std.fmt.bufPrint(
             &info_buf,
-            "Ln {d}/{d}  PgUp/PgDn scroll",
-            .{ line_no, total_lines },
+            "Row {d}/{d}  PgUp/PgDn scroll",
+            .{ line_no, total_rows },
         ) catch "";
         drawLineClipped(win, row_index, info, theme.muted);
     }
@@ -329,28 +330,71 @@ fn fillSpaces(win: vaxis.Window, row: u16, col: u16, count: u16, style: vaxis.St
     }
 }
 
-fn countLines(buffer: []const u8) usize {
-    if (buffer.len == 0) return 1;
-    var count: usize = 1;
-    for (buffer) |ch| {
-        if (ch == '\n') count += 1;
-    }
-    return count;
-}
+const WrapMetrics = struct {
+    total_rows: usize,
+    cursor_row: usize,
+    cursor_col: usize,
+};
 
-fn lineAt(buffer: []const u8, line_index: usize) []const u8 {
-    if (buffer.len == 0) return "";
-    var current: usize = 0;
-    var start: usize = 0;
+fn measureWrapped(buffer: []const u8, cursor_idx: usize, width: u16) WrapMetrics {
+    if (width == 0) return .{ .total_rows = 0, .cursor_row = 0, .cursor_col = 0 };
+    const wrap_width: usize = @intCast(width);
+    var total_rows: usize = 0;
+    var cursor_row: usize = 0;
+    var cursor_col: usize = 0;
+    var cursor_found = false;
+    var line_start: usize = 0;
     var idx: usize = 0;
-    while (idx < buffer.len) : (idx += 1) {
-        if (buffer[idx] == '\n') {
-            if (current == line_index) return buffer[start..idx];
-            current += 1;
-            start = idx + 1;
+    while (idx <= buffer.len) : (idx += 1) {
+        if (idx == buffer.len or buffer[idx] == '\n') {
+            const line_len = idx - line_start;
+            const line_rows = if (line_len == 0) 1 else (line_len + wrap_width - 1) / wrap_width;
+            if (!cursor_found and cursor_idx >= line_start and cursor_idx <= idx) {
+                const col = cursor_idx - line_start;
+                var row_offset: usize = 0;
+                var col_in_row: usize = 0;
+                if (line_len == 0) {
+                    row_offset = 0;
+                    col_in_row = 0;
+                } else if (col == line_len and line_len % wrap_width == 0) {
+                    row_offset = line_rows - 1;
+                    col_in_row = wrap_width;
+                } else {
+                    row_offset = col / wrap_width;
+                    col_in_row = col % wrap_width;
+                }
+                cursor_row = total_rows + row_offset;
+                cursor_col = col_in_row;
+                cursor_found = true;
+            }
+            total_rows += line_rows;
+            line_start = idx + 1;
         }
     }
-    if (current == line_index) return buffer[start..buffer.len];
+    return .{ .total_rows = total_rows, .cursor_row = cursor_row, .cursor_col = cursor_col };
+}
+
+fn wrappedSliceAt(buffer: []const u8, width: u16, row_index: usize) []const u8 {
+    if (width == 0) return "";
+    const wrap_width: usize = @intCast(width);
+    var current_row: usize = 0;
+    var line_start: usize = 0;
+    var idx: usize = 0;
+    while (idx <= buffer.len) : (idx += 1) {
+        if (idx == buffer.len or buffer[idx] == '\n') {
+            const line_len = idx - line_start;
+            const line_rows = if (line_len == 0) 1 else (line_len + wrap_width - 1) / wrap_width;
+            if (row_index < current_row + line_rows) {
+                const offset = row_index - current_row;
+                const start = line_start + offset * wrap_width;
+                const end = @min(line_start + line_len, start + wrap_width);
+                if (start > line_start + line_len) return "";
+                return buffer[start..end];
+            }
+            current_row += line_rows;
+            line_start = idx + 1;
+        }
+    }
     return "";
 }
 
