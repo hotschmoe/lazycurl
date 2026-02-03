@@ -221,6 +221,9 @@ pub const UiState = struct {
     header_new_pending: bool = false,
     header_new_index: ?usize = null,
     header_prev_selection: ?usize = null,
+    query_param_new_pending: bool = false,
+    query_param_new_index: ?usize = null,
+    query_param_prev_selection: ?usize = null,
 };
 
 pub const LeftPanel = enum {
@@ -538,6 +541,17 @@ pub const App = struct {
             }
         }
 
+        if (self.ui.active_tab == .url) {
+            switch (input.code) {
+                .char => |ch| {
+                    if (ch == ' ' and self.ui.left_panel == null) {
+                        self.toggleSelectedQueryParam();
+                        return false;
+                    }
+                },
+                else => {},
+            }
+        }
         if (self.ui.active_tab == .headers) {
             switch (input.code) {
                 .char => |ch| {
@@ -676,6 +690,12 @@ pub const App = struct {
             if (field == .header_key or field == .header_value) {
                 if (self.ui.header_new_pending) {
                     self.cancelNewHeader();
+                    return false;
+                }
+            }
+            if (field == .query_param_key or field == .query_param_value) {
+                if (self.ui.query_param_new_pending) {
+                    self.cancelNewQueryParam();
                     return false;
                 }
             }
@@ -1369,11 +1389,13 @@ pub const App = struct {
                     try self.ui.edit_input.reset(self.current_command.url);
                 },
                 .query_param => |idx| {
-                    if (idx < self.current_command.query_params.items.len) {
-                        self.state = .editing;
-                        self.editing_field = .query_param_value;
-                        try self.ui.edit_input.reset(self.current_command.query_params.items[idx].value);
+                    if (idx >= self.current_command.query_params.items.len) {
+                        try self.beginNewQueryParam();
+                        return;
                     }
+                    self.state = .editing;
+                    self.editing_field = .query_param_value;
+                    try self.ui.edit_input.reset(self.current_command.query_params.items[idx].value);
                 },
             },
             .headers => {
@@ -1604,11 +1626,9 @@ pub const App = struct {
         switch (current) {
             .url => |field| switch (field) {
                 .url => self.ui.selected_field = .{ .url = .method },
-                .method => if (self.current_command.query_params.items.len > 0) {
-                    self.ui.selected_field = .{ .url = .{ .query_param = 0 } };
-                },
+                .method => self.ui.selected_field = .{ .url = .{ .query_param = 0 } },
                 .query_param => |idx| {
-                    if (idx + 1 < self.current_command.query_params.items.len) {
+                    if (idx + 1 <= self.current_command.query_params.items.len) {
                         self.ui.selected_field = .{ .url = .{ .query_param = idx + 1 } };
                     }
                 },
@@ -1819,6 +1839,10 @@ pub const App = struct {
                         try self.switchHeaderEditField(.left);
                         return false;
                     }
+                    if (field == .query_param_key or field == .query_param_value) {
+                        try self.switchQueryParamEditField(.left);
+                        return false;
+                    }
                 }
                 self.ui.edit_input.moveLeft();
                 return false;
@@ -1827,6 +1851,10 @@ pub const App = struct {
                 if (self.editing_field) |field| {
                     if (field == .header_key or field == .header_value) {
                         try self.switchHeaderEditField(.right);
+                        return false;
+                    }
+                    if (field == .query_param_key or field == .query_param_value) {
+                        try self.switchQueryParamEditField(.right);
                         return false;
                     }
                 }
@@ -2061,8 +2089,40 @@ pub const App = struct {
                 .query_param => |idx| {
                     if (idx < self.current_command.query_params.items.len) {
                         var param = &self.current_command.query_params.items[idx];
-                        self.allocator.free(param.value);
-                        param.value = try self.allocator.dupe(u8, value);
+                        if (self.editing_field) |editing| {
+                            switch (editing) {
+                                .query_param_key => {
+                                    const trimmed = std.mem.trim(u8, value, " \t\r\n");
+                                    if (trimmed.len == 0) {
+                                        if (self.ui.query_param_new_pending) {
+                                            self.cancelNewQueryParam();
+                                            return;
+                                        }
+                                        self.state = .normal;
+                                        self.editing_field = null;
+                                        return;
+                                    }
+                                    self.allocator.free(param.key);
+                                    param.key = try self.allocator.dupe(u8, trimmed);
+                                    self.editing_field = .query_param_value;
+                                    try self.ui.edit_input.reset(param.value);
+                                    return;
+                                },
+                                .query_param_value => {
+                                    self.allocator.free(param.value);
+                                    param.value = try self.allocator.dupe(u8, value);
+                                    if (self.ui.query_param_new_pending) {
+                                        self.ui.query_param_new_pending = false;
+                                        self.ui.query_param_new_index = null;
+                                        self.ui.query_param_prev_selection = null;
+                                    }
+                                },
+                                else => {},
+                            }
+                        } else {
+                            self.allocator.free(param.value);
+                            param.value = try self.allocator.dupe(u8, value);
+                        }
                     }
                 },
                 .method => {},
@@ -2487,6 +2547,20 @@ pub const App = struct {
         header.enabled = !header.enabled;
     }
 
+    fn toggleSelectedQueryParam(self: *App) void {
+        if (self.ui.left_panel != null) return;
+        const selected = switch (self.ui.selected_field) {
+            .url => |field| switch (field) {
+                .query_param => |idx| idx,
+                else => return,
+            },
+            else => return,
+        };
+        if (selected >= self.current_command.query_params.items.len) return;
+        var param = &self.current_command.query_params.items[selected];
+        param.enabled = !param.enabled;
+    }
+
     fn toggleSelectedOption(self: *App) void {
         if (self.ui.left_panel != null) return;
         const selected = switch (self.ui.selected_field) {
@@ -2513,6 +2587,21 @@ pub const App = struct {
         return self.current_command.headers.items.len - 1;
     }
 
+    fn appendQueryParam(self: *App, key: []const u8, value: []const u8, enabled: bool) !usize {
+        const param = core.models.command.QueryParam{
+            .id = self.id_generator.nextId(),
+            .key = try self.allocator.dupe(u8, key),
+            .value = try self.allocator.dupe(u8, value),
+            .enabled = enabled,
+        };
+        errdefer {
+            self.allocator.free(param.key);
+            self.allocator.free(param.value);
+        }
+        try self.current_command.query_params.append(self.allocator, param);
+        return self.current_command.query_params.items.len - 1;
+    }
+
     fn beginNewHeader(self: *App) !void {
         const prev = if (self.current_command.headers.items.len > 0)
             self.current_command.headers.items.len - 1
@@ -2525,6 +2614,21 @@ pub const App = struct {
         self.ui.header_prev_selection = prev;
         self.state = .editing;
         self.editing_field = .header_key;
+        try self.ui.edit_input.reset("");
+    }
+
+    fn beginNewQueryParam(self: *App) !void {
+        const prev = if (self.current_command.query_params.items.len > 0)
+            self.current_command.query_params.items.len - 1
+        else
+            null;
+        const new_idx = try self.appendQueryParam("", "", true);
+        self.ui.selected_field = .{ .url = .{ .query_param = new_idx } };
+        self.ui.query_param_new_pending = true;
+        self.ui.query_param_new_index = new_idx;
+        self.ui.query_param_prev_selection = prev;
+        self.state = .editing;
+        self.editing_field = .query_param_key;
         try self.ui.edit_input.reset("");
     }
 
@@ -2541,6 +2645,23 @@ pub const App = struct {
         self.ui.header_new_pending = false;
         self.ui.header_new_index = null;
         self.ui.header_prev_selection = null;
+        self.state = .normal;
+        self.editing_field = null;
+    }
+
+    fn cancelNewQueryParam(self: *App) void {
+        if (self.ui.query_param_new_index) |idx| {
+            if (idx < self.current_command.query_params.items.len) {
+                var removed = self.current_command.query_params.orderedRemove(idx);
+                removed.deinit(self.allocator);
+            }
+        }
+        if (self.ui.query_param_prev_selection) |idx| {
+            self.ui.selected_field = .{ .url = .{ .query_param = idx } };
+        }
+        self.ui.query_param_new_pending = false;
+        self.ui.query_param_new_index = null;
+        self.ui.query_param_prev_selection = null;
         self.state = .normal;
         self.editing_field = null;
     }
@@ -2583,6 +2704,51 @@ pub const App = struct {
             if (direction == .left) {
                 self.editing_field = .header_key;
                 try self.ui.edit_input.reset(header.key);
+            }
+        }
+    }
+
+    fn switchQueryParamEditField(self: *App, direction: enum { left, right }) !void {
+        const idx = switch (self.ui.selected_field) {
+            .url => |field| switch (field) {
+                .query_param => |sel| sel,
+                else => return,
+            },
+            else => return,
+        };
+        if (idx >= self.current_command.query_params.items.len) return;
+        const param = &self.current_command.query_params.items[idx];
+        const value = self.ui.edit_input.slice();
+        const field = self.editing_field orelse return;
+
+        if (field == .query_param_key) {
+            const trimmed = std.mem.trim(u8, value, " \t\r\n");
+            if (trimmed.len == 0) {
+                if (self.ui.query_param_new_pending) {
+                    self.cancelNewQueryParam();
+                }
+                return;
+            }
+            self.allocator.free(param.key);
+            param.key = try self.allocator.dupe(u8, trimmed);
+            if (direction == .right) {
+                self.editing_field = .query_param_value;
+                try self.ui.edit_input.reset(param.value);
+            }
+            return;
+        }
+
+        if (field == .query_param_value) {
+            self.allocator.free(param.value);
+            param.value = try self.allocator.dupe(u8, value);
+            if (self.ui.query_param_new_pending) {
+                self.ui.query_param_new_pending = false;
+                self.ui.query_param_new_index = null;
+                self.ui.query_param_prev_selection = null;
+            }
+            if (direction == .left) {
+                self.editing_field = .query_param_key;
+                try self.ui.edit_input.reset(param.key);
             }
         }
     }

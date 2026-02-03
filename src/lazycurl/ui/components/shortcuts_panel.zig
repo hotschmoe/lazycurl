@@ -42,6 +42,7 @@ const nav_method = &[_][]const u8{
 const nav_url = &[_][]const u8{
     "↑↓←→: Navigate",
     "Enter: Edit",
+    "Space: Toggle",
     "Tab/Shift+Tab: Switch",
 };
 

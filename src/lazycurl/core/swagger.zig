@@ -799,3 +799,35 @@ test "import swagger 2 body placeholder from schema properties" {
         try std.testing.expect(false);
     }
 }
+
+test "import swagger query params" {
+    var generator = ids.IdGenerator{};
+    const json =
+        \\{
+        \\  "swagger": "2.0",
+        \\  "host": "example.com",
+        \\  "paths": {
+        \\    "/pets": {
+        \\      "get": {
+        \\        "parameters": [
+        \\          { "name": "limit", "in": "query", "default": 10 },
+        \\          { "name": "tags", "in": "query" }
+        \\        ]
+        \\      }
+        \\    }
+        \\  }
+        \\}
+    ;
+    var templates = try importTemplatesFromJson(std.testing.allocator, &generator, json, null);
+    defer {
+        for (templates.items) |*template| template.deinit();
+        templates.deinit(std.testing.allocator);
+    }
+    try std.testing.expectEqual(@as(usize, 1), templates.items.len);
+    const params = templates.items[0].command.query_params.items;
+    try std.testing.expectEqual(@as(usize, 2), params.len);
+    try std.testing.expectEqualStrings("limit", params[0].key);
+    try std.testing.expectEqualStrings("10", params[0].value);
+    try std.testing.expectEqualStrings("tags", params[1].key);
+    try std.testing.expectEqualStrings("", params[1].value);
+}
