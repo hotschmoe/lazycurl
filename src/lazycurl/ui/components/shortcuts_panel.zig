@@ -17,40 +17,20 @@ fn drawLine(win: vaxis.Window, row: u16, text: []const u8, style: vaxis.Style) v
 
 fn buildShortcutLine(allocator: std.mem.Allocator, app: *app_mod.App) ![]const u8 {
     const context = shortcutLines(app);
-    const base = if (baseAvailable(app)) baseLines() else &[_][]const u8{};
-    return joinLineGroups(allocator, base, context);
+    return joinLines(allocator, context);
 }
 
-fn joinLineGroups(
-    allocator: std.mem.Allocator,
-    first: []const []const u8,
-    second: []const []const u8,
-) ![]const u8 {
-    const total = first.len + second.len;
-    if (total == 0) return "";
+fn joinLines(allocator: std.mem.Allocator, lines: []const []const u8) ![]const u8 {
+    if (lines.len == 0) return "";
     var joined = try std.ArrayList(u8).initCapacity(allocator, 0);
     try joined.ensureTotalCapacity(allocator, 64);
     var idx: usize = 0;
-    for (first) |entry| {
-        if (idx > 0) try joined.appendSlice(allocator, " | ");
-        try joined.appendSlice(allocator, entry);
-        idx += 1;
-    }
-    for (second) |entry| {
+    for (lines) |entry| {
         if (idx > 0) try joined.appendSlice(allocator, " | ");
         try joined.appendSlice(allocator, entry);
         idx += 1;
     }
     return joined.toOwnedSlice(allocator);
-}
-
-fn baseLines() []const []const u8 {
-    return &[_][]const u8{
-        "Ctrl+R/F5: Run",
-        "Ctrl+X/F10: Quit",
-        "Ctrl+I: Import Swagger",
-        "PgUp/PgDn: Scroll Output",
-    };
 }
 
 const nav_method = &[_][]const u8{
@@ -214,8 +194,4 @@ fn importLines(app: *app_mod.App) []const []const u8 {
         .folder => import_folder,
         .actions => import_actions,
     };
-}
-
-fn baseAvailable(app: *app_mod.App) bool {
-    return app.state == .normal;
 }
