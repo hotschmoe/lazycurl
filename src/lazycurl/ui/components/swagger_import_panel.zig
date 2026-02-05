@@ -138,17 +138,18 @@ fn renderMultilineInput(win: vaxis.Window, app: *app_mod.App, theme: theme_mod.T
     ensureScroll(&app.ui.import_spec_scroll, metrics.cursor_row, total_rows, @intCast(view_rows));
     const scroll = app.ui.import_spec_scroll;
 
-    var row: usize = 0;
-    while (row < view_rows) : (row += 1) {
-        const line_index = scroll + row;
-        const line = wrappedSliceAt(buffer, win.width, line_index);
-        if (line_index == metrics.cursor_row) {
-            const cursor_style = cursorStyle(theme, focused);
-            drawInputLineWithCursor(win, @intCast(row), line, metrics.cursor_col, theme.text, cursor_style, focused and app.ui.cursor_visible);
-        } else {
-            drawLineClipped(win, @intCast(row), line, theme.text);
-        }
-    }
+    renderWrappedView(
+        win,
+        buffer,
+        win.width,
+        scroll,
+        view_rows,
+        metrics.cursor_row,
+        metrics.cursor_col,
+        theme,
+        focused,
+        app.ui.cursor_visible,
+    );
     if (status_row) |row_index| {
         var info_buf: [64]u8 = undefined;
         const line_no = metrics.cursor_row + 1;
@@ -396,6 +397,77 @@ fn wrappedSliceAt(buffer: []const u8, width: u16, row_index: usize) []const u8 {
         }
     }
     return "";
+}
+
+fn renderWrappedView(
+    win: vaxis.Window,
+    buffer: []const u8,
+    width: u16,
+    scroll: usize,
+    view_rows: usize,
+    cursor_row: usize,
+    cursor_col: usize,
+    theme: theme_mod.Theme,
+    focused: bool,
+    cursor_visible: bool,
+) void {
+    if (view_rows == 0 or width == 0) return;
+    const wrap_width: usize = @intCast(width);
+    const view_end = scroll + view_rows;
+    const cursor_style = cursorStyle(theme, focused);
+    var row_index: usize = 0;
+    var line_start: usize = 0;
+    var idx: usize = 0;
+    var next_row: usize = 0;
+
+    while (idx <= buffer.len) : (idx += 1) {
+        if (idx == buffer.len or buffer[idx] == '\n') {
+            const line_len = idx - line_start;
+            const line_rows = if (line_len == 0) 1 else (line_len + wrap_width - 1) / wrap_width;
+            if (row_index + line_rows <= scroll) {
+                row_index += line_rows;
+                line_start = idx + 1;
+                continue;
+            }
+            if (row_index >= view_end) break;
+
+            const start_offset = if (scroll > row_index) scroll - row_index else 0;
+            const end_offset = @min(line_rows, view_end - row_index);
+            var offset: usize = start_offset;
+            while (offset < end_offset) : (offset += 1) {
+                const global_row = row_index + offset;
+                const out_row = global_row - scroll;
+                while (next_row < out_row) : (next_row += 1) {
+                    drawLineClipped(win, @intCast(next_row), "", theme.text);
+                }
+                const start = line_start + offset * wrap_width;
+                const end = @min(line_start + line_len, start + wrap_width);
+                const slice = if (start > line_start + line_len) "" else buffer[start..end];
+                if (global_row == cursor_row) {
+                    drawInputLineWithCursor(
+                        win,
+                        @intCast(out_row),
+                        slice,
+                        cursor_col,
+                        theme.text,
+                        cursor_style,
+                        focused and cursor_visible,
+                    );
+                } else {
+                    drawLineClipped(win, @intCast(out_row), slice, theme.text);
+                }
+                next_row = out_row + 1;
+            }
+
+            row_index += line_rows;
+            line_start = idx + 1;
+            if (row_index >= view_end) break;
+        }
+    }
+
+    while (next_row < view_rows) : (next_row += 1) {
+        drawLineClipped(win, @intCast(next_row), "", theme.text);
+    }
 }
 
 fn ensureScroll(scroll: *usize, cursor_row: usize, total: usize, view: u16) void {

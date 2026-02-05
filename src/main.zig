@@ -59,7 +59,57 @@ pub fn main() !void {
         next_frame_ms = @as(u64, @intCast(std.time.milliTimestamp())) + tick_ms;
 
         loop.queue.lock();
-        while (loop.queue.drain()) |event| {
+        const max_events_per_frame: usize = 200;
+        var processed: usize = 0;
+        var pending_event: ?Event = null;
+        while (processed < max_events_per_frame) : (processed += 1) {
+            const event_opt = if (pending_event) |event| blk: {
+                pending_event = null;
+                break :blk event;
+            } else loop.queue.drain();
+            if (event_opt == null) break;
+            const event = event_opt.?;
+            switch (event) {
+                .key_press => |key| {
+                    if (coalesceChar(key)) |first| {
+                        var text_buf = std.ArrayList(u8).initCapacity(allocator, 0) catch {
+                            handleEvent(allocator, &vx, tty.writer(), &app, &runtime, event, &running) catch {};
+                            continue;
+                        };
+                        defer text_buf.deinit(allocator);
+                        text_buf.append(allocator, first) catch {
+                            handleEvent(allocator, &vx, tty.writer(), &app, &runtime, event, &running) catch {};
+                            continue;
+                        };
+                        while (processed + 1 < max_events_per_frame) {
+                            if (loop.queue.drain()) |next_event| {
+                                processed += 1;
+                                switch (next_event) {
+                                    .key_press => |next_key| {
+                                        if (coalesceChar(next_key)) |next_ch| {
+                                            text_buf.append(allocator, next_ch) catch {};
+                                            continue;
+                                        }
+                                    },
+                                    else => {},
+                                }
+                                pending_event = next_event;
+                                break;
+                            } else {
+                                break;
+                            }
+                        }
+                        if (text_buf.items.len > 1) {
+                            const input: app_mod.KeyInput = .{ .code = .{ .paste = text_buf.items }, .mods = .{} };
+                            _ = app.handleKey(input, &runtime) catch {};
+                        } else if (toKeyInput(key)) |input| {
+                            _ = app.handleKey(input, &runtime) catch {};
+                        }
+                        continue;
+                    }
+                },
+                else => {},
+            }
             handleEvent(allocator, &vx, tty.writer(), &app, &runtime, event, &running) catch {};
         }
         loop.queue.unlock();
@@ -226,6 +276,17 @@ fn toKeyInput(key: vaxis.Key) ?app_mod.KeyInput {
         }
     }
 
+    return null;
+}
+
+fn coalesceChar(key: vaxis.Key) ?u8 {
+    if (key.mods.ctrl) return null;
+    if (key.text) |text| {
+        if (text.len != 1) return null;
+        const byte: u8 = text[0];
+        if (!std.ascii.isPrint(byte)) return null;
+        return byte;
+    }
     return null;
 }
 
