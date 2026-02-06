@@ -1,13 +1,18 @@
 const std = @import("std");
-const zithril = @import("zithril");
+const vaxis = @import("vaxis");
 const app_mod = @import("lazycurl_app");
 const theme_mod = @import("../theme.zig");
 
-pub fn render(allocator: std.mem.Allocator, area: zithril.Rect, buf: *zithril.Buffer, app: *app_mod.App, theme: theme_mod.Theme) void {
-    if (area.height == 0) return;
+pub fn render(allocator: std.mem.Allocator, win: vaxis.Window, app: *app_mod.App, theme: theme_mod.Theme) void {
+    if (win.height == 0) return;
     const line = buildShortcutLine(allocator, app) catch return;
     if (line.len == 0) return;
-    buf.setString(area.x, area.y, line, theme.muted);
+    drawLine(win, 0, line, theme.muted);
+}
+
+fn drawLine(win: vaxis.Window, row: u16, text: []const u8, style: vaxis.Style) void {
+    const segments = [_]vaxis.Segment{.{ .text = text, .style = style }};
+    _ = win.print(&segments, .{ .row_offset = row, .wrap = .none });
 }
 
 fn buildShortcutLine(allocator: std.mem.Allocator, app: *app_mod.App) ![]const u8 {

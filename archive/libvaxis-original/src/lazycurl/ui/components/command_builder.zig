@@ -1,26 +1,24 @@
 const std = @import("std");
-const zithril = @import("zithril");
+const vaxis = @import("vaxis");
 const app_mod = @import("lazycurl_app");
 const theme_mod = @import("../theme.zig");
 const boxed = @import("lib/boxed.zig");
 
 pub fn render(
     allocator: std.mem.Allocator,
-    area: zithril.Rect,
-    buf: *zithril.Buffer,
+    win: vaxis.Window,
     app: *app_mod.App,
     theme: theme_mod.Theme,
 ) void {
     const method_selected = isMethodSelected(app) or app.state == .method_dropdown;
     const border_style = if (method_selected) theme.accent else theme.border;
-    const inner = boxed.begin(allocator, area, buf, "Method", "", border_style, theme.title, theme.muted);
-    renderMethodList(allocator, inner, buf, app, theme);
+    const inner = boxed.begin(allocator, win, "Method", "", border_style, theme.title, theme.muted);
+    renderMethodList(allocator, inner, app, theme);
 }
 
 fn renderMethodList(
     allocator: std.mem.Allocator,
-    area: zithril.Rect,
-    buf: *zithril.Buffer,
+    win: vaxis.Window,
     app: *app_mod.App,
     theme: theme_mod.Theme,
 ) void {
@@ -35,28 +33,29 @@ fn renderMethodList(
 
     var row: u16 = 0;
     for (methods, 0..) |method, idx| {
-        if (row >= area.height) break;
+        if (row >= win.height) break;
         const is_current = methodMatches(method, current.asString());
         const selected = idx == selected_index;
         var style = if (is_current) theme.accent else theme.text;
-        if (focused and selected) style = style.reverse();
+        if (focused and selected) style.reverse = true;
 
         const marker = if (selected) ">" else " ";
         const current_marker = if (is_current and !selected) "*" else " ";
         const line = std.fmt.allocPrint(allocator, "{s}{s} {s}", .{ marker, current_marker, method }) catch return;
-        drawLine(area, buf, row, line, style);
+        drawLine(win, row, line, style);
         row += 1;
     }
 
-    if (row < area.height) {
+    if (row < win.height) {
         const hint = if (is_editing) "Enter to select" else "Enter to change";
-        drawLine(area, buf, row, hint, theme.muted);
+        drawLine(win, row, hint, theme.muted);
     }
 }
 
-fn drawLine(area: zithril.Rect, buf: *zithril.Buffer, row: u16, text: []const u8, style: zithril.Style) void {
-    if (row >= area.height) return;
-    buf.setString(area.x, area.y + row, text, style);
+fn drawLine(win: vaxis.Window, row: u16, text: []const u8, style: vaxis.Style) void {
+    if (row >= win.height) return;
+    const segments = [_]vaxis.Segment{.{ .text = text, .style = style }};
+    _ = win.print(&segments, .{ .row_offset = row, .wrap = .none });
 }
 
 fn isMethodSelected(app: *app_mod.App) bool {

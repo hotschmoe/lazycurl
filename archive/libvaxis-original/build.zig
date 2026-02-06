@@ -4,11 +4,11 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const zithril_dep = b.dependency("zithril", .{
+    const vaxis_dep = b.dependency("vaxis", .{
         .target = target,
         .optimize = optimize,
     });
-    const zithril_mod = zithril_dep.module("zithril");
+    const vaxis_mod = vaxis_dep.module("vaxis");
 
     const core_mod = b.addModule("lazycurl_core", .{
         .root_source_file = b.path("src/lazycurl/core/mod.zig"),
@@ -56,7 +56,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "lazycurl_execution", .module = execution_mod },
             .{ .name = "lazycurl_persistence", .module = persistence_mod },
             .{ .name = "lazycurl_text_input", .module = text_input_mod },
-            .{ .name = "zithril", .module = zithril_mod },
+            .{ .name = "vaxis", .module = vaxis_mod },
         },
     });
 
@@ -67,7 +67,7 @@ pub fn build(b: *std.Build) void {
         .imports = &.{
             .{ .name = "lazycurl_app", .module = app_mod },
             .{ .name = "lazycurl_text_input", .module = text_input_mod },
-            .{ .name = "zithril", .module = zithril_mod },
+            .{ .name = "vaxis", .module = vaxis_mod },
         },
     });
 
@@ -89,7 +89,7 @@ pub fn build(b: *std.Build) void {
             .imports = &.{
                 .{ .name = "lazycurl_app", .module = app_mod },
                 .{ .name = "lazycurl_ui", .module = ui_mod },
-                .{ .name = "zithril", .module = zithril_mod },
+                .{ .name = "vaxis", .module = vaxis_mod },
             },
         }),
     });
@@ -130,7 +130,7 @@ pub fn build(b: *std.Build) void {
                 .{ .name = "lazycurl_execution", .module = execution_mod },
                 .{ .name = "lazycurl_persistence", .module = persistence_mod },
                 .{ .name = "lazycurl_text_input", .module = text_input_mod },
-                .{ .name = "zithril", .module = zithril_mod },
+                .{ .name = "vaxis", .module = vaxis_mod },
             },
         }),
     });

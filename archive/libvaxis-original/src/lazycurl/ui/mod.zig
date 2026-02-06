@@ -1,19 +1,18 @@
 const std = @import("std");
-const zithril = @import("zithril");
+const vaxis = @import("vaxis");
 const app_mod = @import("lazycurl_app");
 const theme_mod = @import("theme.zig");
 const components = @import("components/mod.zig");
 
 pub fn render(
     allocator: std.mem.Allocator,
-    area: zithril.Rect,
-    buf: *zithril.Buffer,
+    win: vaxis.Window,
     app: *app_mod.App,
     runtime: *app_mod.Runtime,
 ) !void {
     const theme = theme_mod.Theme{};
-    const width = area.width;
-    const height = area.height;
+    const width = win.width;
+    const height = win.height;
 
     const status_h: u16 = 6;
     const shortcuts_h: u16 = 1;
@@ -82,39 +81,80 @@ pub fn render(
         0;
 
     if (width > 0 and status_h > 0) {
-        const status_area = zithril.Rect.init(area.x, area.y, width, status_h);
-        components.status_bar.render(allocator, status_area, buf, app, theme);
+        const status_win = win.child(.{
+            .x_off = 0,
+            .y_off = 0,
+            .width = width,
+            .height = status_h,
+            .border = .{ .where = .none },
+        });
+        components.status_bar.render(allocator, status_win, app, theme);
     }
 
     if (width > 0 and shortcuts_h > 0 and height >= shortcuts_h) {
-        const shortcuts_area = zithril.Rect.init(area.x, area.y + height - shortcuts_h, width, shortcuts_h);
-        components.shortcuts_panel.render(allocator, shortcuts_area, buf, app, theme);
+        const shortcuts_win = win.child(.{
+            .x_off = 0,
+            .y_off = height - shortcuts_h,
+            .width = width,
+            .height = shortcuts_h,
+            .border = .{ .where = .none },
+        });
+        components.shortcuts_panel.render(allocator, shortcuts_win, app, theme);
     }
 
     const env_h: u16 = if (total_remaining > 6) 6 else total_remaining;
     if (left_w > 0 and env_h > 0) {
-        const env_area = zithril.Rect.init(area.x, area.y + status_h, left_w, env_h);
-        components.environment_panel.render(allocator, env_area, buf, app, theme);
+        const env_win = win.child(.{
+            .x_off = 0,
+            .y_off = status_h,
+            .width = left_w,
+            .height = env_h,
+            .border = .{ .where = .none },
+        });
+        components.environment_panel.render(allocator, env_win, app, theme);
     }
 
     const templates_h: u16 = if (total_remaining > env_h) total_remaining - env_h else 0;
     if (left_w > 0 and templates_h > 0) {
-        const templates_area = zithril.Rect.init(area.x, area.y + status_h + env_h, left_w, templates_h);
-        components.templates_panel.render(allocator, templates_area, buf, app, theme);
+        const templates_win = win.child(.{
+            .x_off = 0,
+            .y_off = status_h + env_h,
+            .width = left_w,
+            .height = templates_h,
+            .border = .{ .where = .none },
+        });
+        components.templates_panel.render(allocator, templates_win, app, theme);
     }
     if (history_w > 0 and main_h > 0) {
-        const history_area = zithril.Rect.init(area.x + left_w + method_w + url_w, area.y + status_h, history_w, main_h);
-        components.history_panel.render(allocator, history_area, buf, app, theme);
+        const history_win = win.child(.{
+            .x_off = left_w + method_w + url_w,
+            .y_off = status_h,
+            .width = history_w,
+            .height = main_h,
+            .border = .{ .where = .none },
+        });
+        components.history_panel.render(allocator, history_win, app, theme);
     }
 
     if (method_w > 0) {
-        const method_area = zithril.Rect.init(area.x + left_w, area.y + status_h, method_w, main_h);
-        components.command_builder.render(allocator, method_area, buf, app, theme);
+        const method_win = win.child(.{
+            .x_off = left_w,
+            .y_off = status_h,
+            .width = method_w,
+            .height = main_h,
+            .border = .{ .where = .none },
+        });
+        components.command_builder.render(allocator, method_win, app, theme);
     }
 
     if (url_w > 0 and main_h > 0) {
-        const url_area = zithril.Rect.init(area.x + left_w + method_w, area.y + status_h, url_w, main_h);
-        components.url_container.render(allocator, url_area, buf, app, theme);
+        const url_win = win.child(.{
+            .x_off = left_w + method_w,
+            .y_off = status_h,
+            .width = url_w,
+            .height = main_h,
+        });
+        components.url_container.render(allocator, url_win, app, theme);
     }
 
 
@@ -123,13 +163,25 @@ pub fn render(
 
     const command_w: u16 = if (width > left_w) width - left_w else 0;
     if (command_w > 0 and command_display_h > 0) {
-        const command_area = zithril.Rect.init(area.x + left_w, area.y + status_h + main_h, command_w, command_display_h);
-        components.command_display.render(allocator, command_area, buf, app, command_preview, theme);
+        const command_win = win.child(.{
+            .x_off = left_w,
+            .y_off = status_h + main_h,
+            .width = command_w,
+            .height = command_display_h,
+            .border = .{ .where = .none },
+        });
+        components.command_display.render(allocator, command_win, app, command_preview, theme);
     }
 
     if (command_w > 0 and output_h > 0) {
-        const output_area = zithril.Rect.init(area.x + left_w, area.y + status_h + main_h + command_display_h, command_w, output_h);
-        components.output_panel.render(allocator, output_area, buf, app, runtime, theme);
+        const output_win = win.child(.{
+            .x_off = left_w,
+            .y_off = status_h + main_h + command_display_h,
+            .width = command_w,
+            .height = output_h,
+            .border = .{ .where = .none },
+        });
+        components.output_panel.render(allocator, output_win, app, runtime, theme);
     } else {
         app.ui.output_rect = null;
         app.ui.output_copy_rect = null;
@@ -138,6 +190,6 @@ pub fn render(
     }
 
     if (app.state == .importing) {
-        components.swagger_import_panel.render(allocator, area, buf, app, theme);
+        components.swagger_import_panel.render(allocator, win, app, theme);
     }
 }

@@ -1,12 +1,14 @@
-const vaxis = @import("vaxis");
+const zithril = @import("zithril");
+const Style = zithril.Style;
+const Color = zithril.Color;
 
 pub const Theme = struct {
-    border: vaxis.Style = .{ .fg = .{ .index = 244 } },
-    title: vaxis.Style = .{ .fg = .{ .index = 111 }, .bold = true },
-    text: vaxis.Style = .{ .fg = .{ .index = 252 } },
-    muted: vaxis.Style = .{ .fg = .{ .index = 245 } },
-    accent: vaxis.Style = .{ .fg = .{ .index = 81 }, .bold = true },
-    error_style: vaxis.Style = .{ .fg = .{ .index = 203 }, .bold = true },
-    success: vaxis.Style = .{ .fg = .{ .index = 114 }, .bold = true },
-    warning: vaxis.Style = .{ .fg = .{ .index = 178 }, .bold = true },
+    border: Style = Style.init().fg(Color.from256(244)),
+    title: Style = Style.init().fg(Color.from256(111)).bold(),
+    text: Style = Style.init().fg(Color.from256(252)),
+    muted: Style = Style.init().fg(Color.from256(245)),
+    accent: Style = Style.init().fg(Color.from256(81)).bold(),
+    error_style: Style = Style.init().fg(Color.from256(203)).bold(),
+    success: Style = Style.init().fg(Color.from256(114)).bold(),
+    warning: Style = Style.init().fg(Color.from256(178)).bold(),
 };

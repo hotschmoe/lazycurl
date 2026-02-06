@@ -1,5 +1,5 @@
 const std = @import("std");
-const zithril = @import("zithril");
+const vaxis = @import("vaxis");
 const app_mod = @import("lazycurl_app");
 const text_input = @import("lazycurl_text_input");
 const theme_mod = @import("../theme.zig");
@@ -9,13 +9,12 @@ const key_value_control = @import("lib/key_value_control.zig");
 
 pub fn render(
     allocator: std.mem.Allocator,
-    area: zithril.Rect,
-    buf: *zithril.Buffer,
+    win: vaxis.Window,
     app: *app_mod.App,
     theme: theme_mod.Theme,
 ) void {
-    const width = area.width;
-    const height = area.height;
+    const width = win.width;
+    const height = win.height;
 
     if (height == 0 or width == 0) return;
 
@@ -31,19 +30,37 @@ pub fn render(
 
     if (url_h > 0) {
         const url_border = if (isUrlSelected(app) or isEditingUrl(app)) theme.accent else theme.border;
-        const url_area = zithril.Rect.init(area.x, area.y, width, url_h);
-        renderUrlInput(allocator, url_area, buf, app, theme, url_border);
+        const url_win = win.child(.{
+            .x_off = 0,
+            .y_off = 0,
+            .width = width,
+            .height = url_h,
+            .border = .{ .where = .none },
+        });
+        renderUrlInput(allocator, url_win, app, theme, url_border);
     }
 
     if (tabs_h > 0) {
-        const tabs_area = zithril.Rect.init(area.x, area.y + url_h, width, tabs_h);
-        const inner = boxed.begin(allocator, tabs_area, buf, "", "", theme.border, theme.title, theme.muted);
-        renderTabs(inner, buf, app, theme);
+        const tabs_win = win.child(.{
+            .x_off = 0,
+            .y_off = url_h,
+            .width = width,
+            .height = tabs_h,
+            .border = .{ .where = .none },
+        });
+        const inner = boxed.begin(allocator, tabs_win, "", "", theme.border, theme.title, theme.muted);
+        renderTabs(inner, app, theme);
     }
 
     if (content_h > 0) {
         const content_selected = isContentSelected(app);
-        const content_area = zithril.Rect.init(area.x, area.y + url_h + tabs_h, width, content_h);
+        const content_win = win.child(.{
+            .x_off = 0,
+            .y_off = url_h + tabs_h,
+            .width = width,
+            .height = content_h,
+            .border = .{ .where = .none },
+        });
         const border_style = if (content_selected) theme.accent else theme.border;
         const tab_title = switch (app.ui.active_tab) {
             .url => "Query Params",
@@ -53,37 +70,36 @@ pub fn render(
         };
         const right_label = if (app.ui.active_tab == .body) bodyTypeLabel(app) else "";
         const right_style = if (app.ui.active_tab == .body and isBodyTypeSelected(app)) theme.accent else theme.muted;
-        const inner = boxed.begin(allocator, content_area, buf, tab_title, right_label, border_style, theme.title, right_style);
-        renderTabContent(allocator, inner, buf, app, theme);
+        const inner = boxed.begin(allocator, content_win, tab_title, right_label, border_style, theme.title, right_style);
+        renderTabContent(allocator, inner, app, theme);
     }
 }
 
 fn renderUrlInput(
     allocator: std.mem.Allocator,
-    area: zithril.Rect,
-    buf: *zithril.Buffer,
+    win: vaxis.Window,
     app: *app_mod.App,
     theme: theme_mod.Theme,
-    border_style: zithril.Style,
+    border_style: vaxis.Style,
 ) void {
     var title_style = theme.title;
     const is_editing = isEditingUrl(app);
     if (is_editing) {
         title_style = theme.accent;
     }
-    const inner = boxed.begin(allocator, area, buf, "URL", "", border_style, title_style, theme.muted);
+    const inner = boxed.begin(allocator, win, "URL", "", border_style, title_style, theme.muted);
 
     const is_selected = isUrlSelected(app);
     var url_style = if (is_selected) theme.accent else theme.text;
     if (is_editing) {
         url_style = theme.accent;
-        url_style = url_style.reverse();
+        url_style.reverse = true;
     }
     if (is_editing) {
-        const cursor_style = url_style.notReverse();
+        var cursor_style = url_style;
+        cursor_style.reverse = !url_style.reverse;
         key_value_control.drawInputWithCursorPrefix(
             inner,
-            buf,
             0,
             app.ui.edit_input.slice(),
             app.ui.edit_input.cursor,
@@ -95,7 +111,6 @@ fn renderUrlInput(
     } else {
         key_value_control.drawInputWithCursorPrefix(
             inner,
-            buf,
             0,
             app.current_command.url,
             app.current_command.url.len,
@@ -107,7 +122,7 @@ fn renderUrlInput(
     }
 }
 
-fn renderTabs(area: zithril.Rect, buf: *zithril.Buffer, app: *app_mod.App, theme: theme_mod.Theme) void {
+fn renderTabs(win: vaxis.Window, app: *app_mod.App, theme: theme_mod.Theme) void {
     const tabs = [_]struct {
         label: []const u8,
         tab: app_mod.Tab,
@@ -118,57 +133,56 @@ fn renderTabs(area: zithril.Rect, buf: *zithril.Buffer, app: *app_mod.App, theme
         .{ .label = "[Options]", .tab = .options },
     };
 
-    var x: u16 = area.x;
-    const y = area.y;
+    var segments: [12]vaxis.Segment = undefined;
+    var idx: usize = 0;
     for (tabs) |tab| {
         var style = if (app.ui.active_tab == tab.tab) theme.accent else theme.text;
-        if (app.ui.active_tab == tab.tab) style = style.reverse();
-        buf.setString(x, y, tab.label, style);
-        x += @intCast(tab.label.len);
-        buf.setString(x, y, " ", theme.muted);
-        x += 1;
+        if (app.ui.active_tab == tab.tab) style.reverse = true;
+        segments[idx] = .{ .text = tab.label, .style = style };
+        idx += 1;
+        segments[idx] = .{ .text = " ", .style = theme.muted };
+        idx += 1;
     }
+    _ = win.print(segments[0..idx], .{ .row_offset = 0, .wrap = .none });
 }
 
 fn renderTabContent(
     allocator: std.mem.Allocator,
-    area: zithril.Rect,
-    buf: *zithril.Buffer,
+    win: vaxis.Window,
     app: *app_mod.App,
     theme: theme_mod.Theme,
 ) void {
     switch (app.ui.active_tab) {
-        .url => renderQueryParams(allocator, area, buf, app, theme),
-        .headers => renderHeaders(allocator, area, buf, app, theme),
-        .body => renderBody(allocator, area, buf, app, theme),
-        .options => options_panel.render(allocator, area, buf, app, theme),
+        .url => renderQueryParams(allocator, win, app, theme),
+        .headers => renderHeaders(allocator, win, app, theme),
+        .body => renderBody(allocator, win, app, theme),
+        .options => options_panel.render(allocator, win, app, theme),
     }
 }
 
 fn renderQueryParams(
     allocator: std.mem.Allocator,
-    area: zithril.Rect,
-    buf: *zithril.Buffer,
+    win: vaxis.Window,
     app: *app_mod.App,
     theme: theme_mod.Theme,
 ) void {
     var row: u16 = 0;
     for (app.current_command.query_params.items, 0..) |param, idx| {
-        if (row >= area.height) break;
+        if (row >= win.height) break;
         const enabled = if (param.enabled) "[x]" else "[ ]";
         const is_selected = isQueryParamSelected(app, idx);
         const is_editing = app.state == .editing and app.editing_field != null and is_selected and
             (app.editing_field.? == .query_param_value or app.editing_field.? == .query_param_key);
         var style = if (is_selected) theme.accent else theme.text;
-        if (is_selected) style = style.reverse();
+        if (is_selected) style.reverse = true;
         if (is_editing) {
-            const cursor_style = style.notReverse();
+            var cursor_style = style;
+            cursor_style.reverse = !style.reverse;
             if (app.editing_field.? == .query_param_key) {
                 const prefix = std.fmt.allocPrint(allocator, "{s} ", .{enabled}) catch return;
                 const suffix = std.fmt.allocPrint(allocator, "={s}", .{param.value}) catch return;
                 key_value_control.drawInputWithCursorPrefixSuffix(
-                    area,
-                    buf,
+                    win,
                     row,
                     app.ui.edit_input.slice(),
                     app.ui.edit_input.cursor,
@@ -182,8 +196,7 @@ fn renderQueryParams(
             } else {
                 const prefix = std.fmt.allocPrint(allocator, "{s} {s}=", .{ enabled, param.key }) catch return;
                 key_value_control.drawInputWithCursorPrefix(
-                    area,
-                    buf,
+                    win,
                     row,
                     app.ui.edit_input.slice(),
                     app.ui.edit_input.cursor,
@@ -195,46 +208,45 @@ fn renderQueryParams(
             }
         } else {
             const line = std.fmt.allocPrint(allocator, "{s} {s}={s}", .{ enabled, param.key, param.value }) catch return;
-            drawLine(area, buf, row, line, style);
+            drawLine(win, row, line, style);
         }
         row += 1;
     }
 
-    if (row < area.height) {
+    if (row < win.height) {
         const ghost_selected = isQueryParamSelected(app, app.current_command.query_params.items.len);
         var ghost_style = if (ghost_selected) theme.accent else theme.muted;
-        if (ghost_selected) ghost_style = ghost_style.reverse();
-        drawLine(area, buf, row, "[ ] New query param", ghost_style);
+        if (ghost_selected) ghost_style.reverse = true;
+        drawLine(win, row, "[ ] New query param", ghost_style);
     }
 }
 
 fn renderHeaders(
     allocator: std.mem.Allocator,
-    area: zithril.Rect,
-    buf: *zithril.Buffer,
+    win: vaxis.Window,
     app: *app_mod.App,
     theme: theme_mod.Theme,
 ) void {
     var row: u16 = 0;
     for (app.current_command.headers.items, 0..) |header, idx| {
-        if (row >= area.height) break;
+        if (row >= win.height) break;
         const enabled = if (header.enabled) "[x]" else "[ ]";
         const is_selected = isHeaderSelected(app, idx);
         const is_editing = app.state == .editing and app.editing_field != null and is_selected and
             (app.editing_field.? == .header_value or app.editing_field.? == .header_key);
         var style = if (is_selected) theme.accent else theme.text;
-        if (is_selected) style = style.reverse();
+        if (is_selected) style.reverse = true;
         if (is_editing) {
             const prefix = if (app.editing_field.? == .header_key)
                 std.fmt.allocPrint(allocator, "{s} ", .{enabled}) catch return
             else
                 std.fmt.allocPrint(allocator, "{s} {s}: ", .{ enabled, header.key }) catch return;
-            const cursor_style = style.notReverse();
+            var cursor_style = style;
+            cursor_style.reverse = !style.reverse;
             if (app.editing_field.? == .header_key) {
                 const suffix = std.fmt.allocPrint(allocator, ": {s}", .{header.value}) catch return;
                 key_value_control.drawInputWithCursorPrefixSuffix(
-                    area,
-                    buf,
+                    win,
                     row,
                     app.ui.edit_input.slice(),
                     app.ui.edit_input.cursor,
@@ -247,8 +259,7 @@ fn renderHeaders(
                 );
             } else {
                 key_value_control.drawInputWithCursorPrefix(
-                    area,
-                    buf,
+                    win,
                     row,
                     app.ui.edit_input.slice(),
                     app.ui.edit_input.cursor,
@@ -260,23 +271,22 @@ fn renderHeaders(
             }
         } else {
             const line = std.fmt.allocPrint(allocator, "{s} {s}: {s}", .{ enabled, header.key, header.value }) catch return;
-            drawLine(area, buf, row, line, style);
+            drawLine(win, row, line, style);
         }
         row += 1;
     }
 
-    if (row < area.height) {
+    if (row < win.height) {
         const ghost_selected = isHeaderSelected(app, app.current_command.headers.items.len);
         var ghost_style = if (ghost_selected) theme.accent else theme.muted;
-        if (ghost_selected) ghost_style = ghost_style.reverse();
-        drawLine(area, buf, row, "[ ] New header", ghost_style);
+        if (ghost_selected) ghost_style.reverse = true;
+        drawLine(win, row, "[ ] New header", ghost_style);
     }
 }
 
 fn renderBody(
     allocator: std.mem.Allocator,
-    area: zithril.Rect,
-    buf: *zithril.Buffer,
+    win: vaxis.Window,
     app: *app_mod.App,
     theme: theme_mod.Theme,
 ) void {
@@ -290,8 +300,7 @@ fn renderBody(
     const is_editing = app.state == .editing and app.editing_field != null and app.editing_field.? == .body;
     if (is_editing) {
         renderBodyInput(
-            area,
-            buf,
+            win,
             start_row,
             &app.ui.body_input,
             content_style,
@@ -302,102 +311,106 @@ fn renderBody(
         );
         return;
     }
+    win.hideCursor();
 
     switch (app.current_command.body orelse .none) {
-        .none => drawLine(area, buf, start_row, "No body", theme.muted),
-        .raw => |payload| renderBodyLines(area, buf, start_row, payload, content_style, theme, is_json),
+        .none => drawLine(win, start_row, "No body", theme.muted),
+        .raw => |payload| renderBodyLines(win, start_row, payload, content_style, theme, is_json),
         .form_data => |list| {
             var row: u16 = start_row;
             for (list.items) |item| {
-                if (row >= area.height) break;
+                if (row >= win.height) break;
                 const enabled = if (item.enabled) "[x]" else "[ ]";
                 const line = std.fmt.allocPrint(allocator, "{s} {s}={s}", .{ enabled, item.key, item.value }) catch return;
-                drawLine(area, buf, row, line, content_style);
+                drawLine(win, row, line, content_style);
                 row += 1;
             }
         },
         .binary => |payload| {
             const line = std.fmt.allocPrint(allocator, "Binary data: {d} bytes", .{payload.len}) catch return;
-            drawLine(area, buf, start_row, line, content_style);
+            drawLine(win, start_row, line, content_style);
         },
     }
 }
 
 fn renderBodyLines(
-    area: zithril.Rect,
-    buf: *zithril.Buffer,
+    win: vaxis.Window,
     start_row: u16,
     payload: []const u8,
-    style: zithril.Style,
+    style: vaxis.Style,
     theme: theme_mod.Theme,
     is_json: bool,
 ) void {
     if (payload.len == 0) {
-        drawLine(area, buf, start_row, "Empty body", theme.muted);
+        drawLine(win, start_row, "Empty body", theme.muted);
         return;
     }
 
     var row = start_row;
     var it = std.mem.splitScalar(u8, payload, '\n');
     while (it.next()) |line| {
-        if (row >= area.height) break;
+        if (row >= win.height) break;
         if (is_json) {
-            drawJsonLine(area, buf, row, line, style, theme);
+            drawJsonLine(win, row, line, style, theme);
         } else {
-            drawLineClipped(area, buf, row, line, style);
+            drawLineClipped(win, row, line, style);
         }
         row += 1;
     }
 }
 
 fn drawUrlValue(
-    area: zithril.Rect,
-    buf: *zithril.Buffer,
+    win: vaxis.Window,
     row: u16,
     url: []const u8,
-    base_style: zithril.Style,
-    var_style: zithril.Style,
+    base_style: vaxis.Style,
+    var_style: vaxis.Style,
 ) void {
-    if (row >= area.height) return;
-    var x: u16 = area.x;
-    const y = area.y + row;
+    if (row >= win.height) return;
+    var segments: [32]vaxis.Segment = undefined;
+    var count: usize = 0;
     var remaining = url;
 
-    while (remaining.len > 0) {
+    while (remaining.len > 0 and count + 1 < segments.len) {
         const start = std.mem.indexOf(u8, remaining, "{{");
         if (start == null) {
-            buf.setString(x, y, remaining, base_style);
+            segments[count] = .{ .text = remaining, .style = base_style };
+            count += 1;
             break;
         }
         const start_idx = start.?;
         if (start_idx > 0) {
-            buf.setString(x, y, remaining[0..start_idx], base_style);
-            x += @intCast(start_idx);
+            segments[count] = .{ .text = remaining[0..start_idx], .style = base_style };
+            count += 1;
         }
         const after_start = remaining[start_idx + 2 ..];
         const end = std.mem.indexOf(u8, after_start, "}}");
-        if (end == null) {
-            buf.setString(x, y, remaining[start_idx..], base_style);
+        if (end == null or count + 1 >= segments.len) {
+            segments[count] = .{ .text = remaining[start_idx..], .style = base_style };
+            count += 1;
             break;
         }
         const end_idx = end.?;
-        const var_text = remaining[start_idx .. start_idx + 2 + end_idx + 2];
-        buf.setString(x, y, var_text, var_style);
-        x += @intCast(var_text.len);
+        segments[count] = .{ .text = remaining[start_idx .. start_idx + 2 + end_idx + 2], .style = var_style };
+        count += 1;
         remaining = after_start[end_idx + 2 ..];
     }
+
+    if (count == 0) return;
+    _ = win.print(segments[0..count], .{ .row_offset = row, .wrap = .none });
 }
 
-fn drawLine(area: zithril.Rect, buf: *zithril.Buffer, row: u16, text: []const u8, style: zithril.Style) void {
-    if (row >= area.height) return;
-    buf.setString(area.x, area.y + row, text, style);
+fn drawLine(win: vaxis.Window, row: u16, text: []const u8, style: vaxis.Style) void {
+    if (row >= win.height) return;
+    const segments = [_]vaxis.Segment{.{ .text = text, .style = style }};
+    _ = win.print(&segments, .{ .row_offset = row, .wrap = .none });
 }
 
-fn drawLineClipped(area: zithril.Rect, buf: *zithril.Buffer, row: u16, text: []const u8, style: zithril.Style) void {
-    if (row >= area.height or area.width == 0) return;
-    const limit: usize = @intCast(area.width);
+fn drawLineClipped(win: vaxis.Window, row: u16, text: []const u8, style: vaxis.Style) void {
+    if (row >= win.height or win.width == 0) return;
+    const limit: usize = @intCast(win.width);
     const slice = if (text.len > limit) text[0..limit] else text;
-    drawLine(area, buf, row, slice, style);
+    drawLine(win, row, slice, style);
 }
 
 
@@ -420,32 +433,32 @@ fn visibleSlice(line: []const u8, cursor_col: usize, width: u16) VisibleSlice {
     return .{ .slice = visible, .cursor_pos = cursor_pos };
 }
 
-fn drawJsonLine(area: zithril.Rect, buf: *zithril.Buffer, row: u16, text: []const u8, base_style: zithril.Style, theme: theme_mod.Theme) void {
-    if (row >= area.height or area.width == 0) return;
-    const limit: usize = @intCast(area.width);
+fn drawJsonLine(win: vaxis.Window, row: u16, text: []const u8, base_style: vaxis.Style, theme: theme_mod.Theme) void {
+    if (row >= win.height or win.width == 0) return;
+    const limit: usize = @intCast(win.width);
     const slice = if (text.len > limit) text[0..limit] else text;
-    if (!renderJsonSegments(area, buf, row, slice, base_style, theme)) {
-        drawLineClipped(area, buf, row, slice, base_style);
+    if (!renderJsonSegments(win, row, slice, base_style, theme)) {
+        drawLineClipped(win, row, slice, base_style);
     }
 }
 
 fn renderJsonSegments(
-    area: zithril.Rect,
-    buf: *zithril.Buffer,
+    win: vaxis.Window,
     row: u16,
     text: []const u8,
-    base_style: zithril.Style,
+    base_style: vaxis.Style,
     theme: theme_mod.Theme,
 ) bool {
+    var segments: [64]vaxis.Segment = undefined;
+    var count: usize = 0;
     const string_style = theme.accent;
     const number_style = theme.success;
     const bool_style = theme.muted;
     const punct_style = theme.muted;
 
-    var x: u16 = area.x;
-    const y = area.y + row;
     var i: usize = 0;
     while (i < text.len) {
+        if (count >= segments.len) return false;
         const ch = text[i];
         if (ch == '"') {
             const start = i;
@@ -460,9 +473,8 @@ fn renderJsonSegments(
                     break;
                 }
             }
-            const seg = text[start..i];
-            buf.setString(x, y, seg, string_style);
-            x += @intCast(seg.len);
+            segments[count] = .{ .text = text[start..i], .style = string_style };
+            count += 1;
             continue;
         }
         if (isNumberStart(text, i)) {
@@ -478,9 +490,8 @@ fn renderJsonSegments(
                 if (i < text.len and (text[i] == '+' or text[i] == '-')) i += 1;
                 while (i < text.len and std.ascii.isDigit(text[i])) : (i += 1) {}
             }
-            const seg = text[start..i];
-            buf.setString(x, y, seg, number_style);
-            x += @intCast(seg.len);
+            segments[count] = .{ .text = text[start..i], .style = number_style };
+            count += 1;
             continue;
         }
         if (std.ascii.isAlphabetic(ch)) {
@@ -489,25 +500,26 @@ fn renderJsonSegments(
             while (i < text.len and std.ascii.isAlphabetic(text[i])) : (i += 1) {}
             const word = text[start..i];
             const style = if (isJsonKeyword(word)) bool_style else base_style;
-            buf.setString(x, y, word, style);
-            x += @intCast(word.len);
+            segments[count] = .{ .text = word, .style = style };
+            count += 1;
             continue;
         }
         if (isJsonPunct(ch)) {
-            buf.setString(x, y, text[i .. i + 1], punct_style);
-            x += 1;
+            segments[count] = .{ .text = text[i .. i + 1], .style = punct_style };
+            count += 1;
             i += 1;
             continue;
         }
         const start = i;
         i += 1;
         while (i < text.len and !isJsonSpecial(text[i])) : (i += 1) {}
-        const seg = text[start..i];
-        buf.setString(x, y, seg, base_style);
-        x += @intCast(seg.len);
+        segments[count] = .{ .text = text[start..i], .style = base_style };
+        count += 1;
     }
 
-    return i > 0;
+    if (count == 0) return false;
+    _ = win.print(segments[0..count], .{ .row_offset = row, .wrap = .none });
+    return true;
 }
 
 fn isJsonSpecial(ch: u8) bool {
@@ -533,18 +545,16 @@ fn isJsonKeyword(word: []const u8) bool {
 }
 
 fn renderBodyInput(
-    area: zithril.Rect,
-    buf: *zithril.Buffer,
+    win: vaxis.Window,
     start_row: u16,
     input: *const text_input.TextInput,
-    style: zithril.Style,
+    style: vaxis.Style,
     theme: theme_mod.Theme,
     cursor_visible: bool,
     is_json: bool,
     mode: app_mod.BodyEditMode,
 ) void {
-    _ = mode;
-    const max_lines: usize = if (area.height > start_row) area.height - start_row else 0;
+    const max_lines: usize = if (win.height > start_row) win.height - start_row else 0;
     if (max_lines == 0) return;
 
     var row = start_row;
@@ -558,52 +568,49 @@ fn renderBodyInput(
     var rendered_any = false;
     var it = std.mem.splitScalar(u8, text, '\n');
     while (it.next()) |line| {
-        if (row >= area.height) break;
+        if (row >= win.height) break;
         if (line_index < start_line) {
             line_index += 1;
             continue;
         }
         rendered_any = true;
         if (line_index == cursor.row) {
-            const view = visibleSlice(line, cursor.col, area.width);
+            const view = visibleSlice(line, cursor.col, win.width);
             if (is_json) {
-                drawJsonLine(area, buf, row, view.slice, style, theme);
+                drawJsonLine(win, row, view.slice, style, theme);
             } else {
-                drawLine(area, buf, row, view.slice, style);
+                drawLine(win, row, view.slice, style);
             }
             if (cursor_visible) {
-                drawCursorAt(area, buf, row, view.cursor_pos, view.slice, style);
+                win.setCursorShape(if (mode == .insert) .beam else .block);
+                win.showCursor(view.cursor_pos, row);
+            } else {
+                win.hideCursor();
             }
         } else {
             if (is_json) {
-                drawJsonLine(area, buf, row, line, style, theme);
+                drawJsonLine(win, row, line, style, theme);
             } else {
-                drawLineClipped(area, buf, row, line, style);
+                drawLineClipped(win, row, line, style);
             }
         }
         row += 1;
         line_index += 1;
     }
-    if (!rendered_any and row < area.height) {
-        const view = visibleSlice("", 0, area.width);
+    if (!rendered_any and row < win.height) {
+        const view = visibleSlice("", 0, win.width);
         if (is_json) {
-            drawJsonLine(area, buf, row, view.slice, style, theme);
+            drawJsonLine(win, row, view.slice, style, theme);
         } else {
-            drawLine(area, buf, row, view.slice, style);
+            drawLine(win, row, view.slice, style);
         }
         if (cursor_visible) {
-            drawCursorAt(area, buf, row, view.cursor_pos, view.slice, style);
+            win.setCursorShape(if (mode == .insert) .beam else .block);
+            win.showCursor(view.cursor_pos, row);
+        } else {
+            win.hideCursor();
         }
     }
-}
-
-fn drawCursorAt(area: zithril.Rect, buf: *zithril.Buffer, row: u16, cursor_pos: u16, text: []const u8, style: zithril.Style) void {
-    if (row >= area.height) return;
-    const x = area.x + cursor_pos;
-    const y = area.y + row;
-    const cursor_style = style.reverse();
-    const ch = if (cursor_pos < text.len) text[cursor_pos .. cursor_pos + 1] else " ";
-    buf.setString(x, y, ch, cursor_style);
 }
 
 fn isUrlSelected(app: *app_mod.App) bool {

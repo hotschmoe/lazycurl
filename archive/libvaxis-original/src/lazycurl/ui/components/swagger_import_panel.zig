@@ -1,5 +1,5 @@
 const std = @import("std");
-const zithril = @import("zithril");
+const vaxis = @import("vaxis");
 const app_mod = @import("lazycurl_app");
 const theme_mod = @import("../theme.zig");
 const boxed = @import("lib/boxed.zig");
@@ -7,14 +7,13 @@ const floating_pane = @import("lib/floating_pane.zig");
 
 pub fn render(
     allocator: std.mem.Allocator,
-    area: zithril.Rect,
-    buf: *zithril.Buffer,
+    win: vaxis.Window,
     app: *app_mod.App,
     theme: theme_mod.Theme,
 ) void {
-    if (area.width < 30 or area.height < 10) return;
+    if (win.width < 30 or win.height < 10) return;
 
-    const inner = floating_pane.begin(allocator, area, buf, .{
+    const inner = floating_pane.begin(allocator, win, .{
         .title = "Import Swagger",
         .right_label = "Esc",
         .border_style = theme.border,
@@ -23,34 +22,35 @@ pub fn render(
     }) orelse return;
     if (inner.width < 18 or inner.height < 6) return;
 
-    drawSourceLine(inner, buf, app, theme);
+    drawSourceLine(allocator, inner, app, theme);
 
     const footer_rows: u16 = 4;
     if (inner.height <= 1 + footer_rows) return;
     const input_h: u16 = inner.height - 1 - footer_rows;
     const input_x: u16 = 0;
     const input_w: u16 = if (inner.width > 1) inner.width - 1 else inner.width;
-    const input_container = zithril.Rect.init(
-        inner.x + input_x,
-        inner.y + 1,
-        input_w,
-        input_h,
-    );
-    renderInputBox(allocator, input_container, buf, app, theme);
+    const input_container = inner.child(.{
+        .x_off = input_x,
+        .y_off = 1,
+        .width = input_w,
+        .height = input_h,
+        .border = .{ .where = .none },
+    });
+    renderInputBox(allocator, input_container, app, theme);
 
     const error_row: u16 = inner.height - 4;
     const folder_row: u16 = inner.height - 3;
     const new_folder_row: u16 = inner.height - 2;
     const action_row: u16 = inner.height - 1;
 
-    drawErrorLine(inner, buf, error_row, app, theme);
-    drawFolderLine(allocator, inner, buf, folder_row, app, theme);
-    drawNewFolderLine(inner, buf, new_folder_row, app, theme);
-    drawActionsLine(inner, buf, action_row, app, theme);
+    drawErrorLine(inner, error_row, app, theme);
+    drawFolderLine(allocator, inner, folder_row, app, theme);
+    drawNewFolderLine(inner, new_folder_row, app, theme);
+    drawActionsLine(allocator, inner, action_row, app, theme);
 }
 
-fn drawSourceLine(area: zithril.Rect, buf: *zithril.Buffer, app: *app_mod.App, theme: theme_mod.Theme) void {
-    if (area.width == 0) return;
+fn drawSourceLine(allocator: std.mem.Allocator, win: vaxis.Window, app: *app_mod.App, theme: theme_mod.Theme) void {
+    if (win.width == 0) return;
     const focus = app.ui.import_focus == .source;
     const paste_selected = app.ui.import_source == .paste;
     const file_selected = app.ui.import_source == .file;
@@ -60,30 +60,27 @@ fn drawSourceLine(area: zithril.Rect, buf: *zithril.Buffer, app: *app_mod.App, t
     const option_style = theme.text;
     var selected_style = theme.accent;
     if (focus) {
-        selected_style = selected_style.reverse();
+        selected_style.reverse = true;
     }
 
     const paste_label = if (paste_selected) "[Paste JSON]" else " Paste JSON ";
     const file_label = if (file_selected) "[File Path]" else " File Path ";
     const url_label = if (url_selected) "[URL]" else " URL ";
 
-    var x: u16 = area.x;
-    const y = area.y;
-    buf.setString(x, y, "Source: ", label_style);
-    x += 8;
-    buf.setString(x, y, paste_label, if (paste_selected) selected_style else option_style);
-    x += @intCast(paste_label.len);
-    buf.setString(x, y, " ", label_style);
-    x += 1;
-    buf.setString(x, y, file_label, if (file_selected) selected_style else option_style);
-    x += @intCast(file_label.len);
-    buf.setString(x, y, " ", label_style);
-    x += 1;
-    buf.setString(x, y, url_label, if (url_selected) selected_style else option_style);
+    const segments = [_]vaxis.Segment{
+        .{ .text = "Source: ", .style = label_style },
+        .{ .text = paste_label, .style = if (paste_selected) selected_style else option_style },
+        .{ .text = " ", .style = label_style },
+        .{ .text = file_label, .style = if (file_selected) selected_style else option_style },
+        .{ .text = " ", .style = label_style },
+        .{ .text = url_label, .style = if (url_selected) selected_style else option_style },
+    };
+    _ = win.print(segments[0..], .{ .row_offset = 0, .wrap = .none });
+    _ = allocator;
 }
 
-fn renderInputBox(allocator: std.mem.Allocator, area: zithril.Rect, buf: *zithril.Buffer, app: *app_mod.App, theme: theme_mod.Theme) void {
-    if (area.width < 6 or area.height < 3) return;
+fn renderInputBox(allocator: std.mem.Allocator, win: vaxis.Window, app: *app_mod.App, theme: theme_mod.Theme) void {
+    if (win.width < 6 or win.height < 3) return;
     const focused = app.ui.import_focus == .input;
     const title = switch (app.ui.import_source) {
         .paste => "Paste JSON",
@@ -96,19 +93,18 @@ fn renderInputBox(allocator: std.mem.Allocator, area: zithril.Rect, buf: *zithri
         border_style = theme.accent;
         title_style = theme.accent;
     }
-    const inner = boxed.begin(allocator, area, buf, title, "", border_style, title_style, theme.muted);
+    const inner = boxed.begin(allocator, win, title, "", border_style, title_style, theme.muted);
     if (inner.height == 0 or inner.width == 0) return;
-    buf.fill(inner, zithril.Cell.styled(' ', zithril.Style.empty));
+    inner.clear();
     switch (app.ui.import_source) {
-        .paste => renderMultilineInput(inner, buf, app, theme, focused),
-        .file => renderSingleLineInput(inner, buf, app.ui.import_path_input.slice(), app.ui.import_path_input.cursor, "Path to swagger.json", theme, focused, app.ui.cursor_visible),
-        .url => renderSingleLineInput(inner, buf, app.ui.import_url_input.slice(), app.ui.import_url_input.cursor, "https://example.com/swagger.json", theme, focused, app.ui.cursor_visible),
+        .paste => renderMultilineInput(inner, app, theme, focused),
+        .file => renderSingleLineInput(inner, app.ui.import_path_input.slice(), app.ui.import_path_input.cursor, "Path to swagger.json", theme, focused, app.ui.cursor_visible),
+        .url => renderSingleLineInput(inner, app.ui.import_url_input.slice(), app.ui.import_url_input.cursor, "https://example.com/swagger.json", theme, focused, app.ui.cursor_visible),
     }
 }
 
 fn renderSingleLineInput(
-    area: zithril.Rect,
-    buf: *zithril.Buffer,
+    win: vaxis.Window,
     value: []const u8,
     cursor: usize,
     placeholder: []const u8,
@@ -117,36 +113,35 @@ fn renderSingleLineInput(
     cursor_visible: bool,
 ) void {
     if (!focused and value.len == 0) {
-        drawLineClipped(area, buf, 0, placeholder, theme.muted);
+        drawLineClipped(win, 0, placeholder, theme.muted);
         return;
     }
     const cursor_style = cursorStyle(theme, focused);
-    drawInputLineWithCursor(area, buf, 0, value, cursor, theme.text, cursor_style, focused and cursor_visible);
+    drawInputLineWithCursor(win, 0, value, cursor, theme.text, cursor_style, focused and cursor_visible);
 }
 
-fn renderMultilineInput(area: zithril.Rect, buf: *zithril.Buffer, app: *app_mod.App, theme: theme_mod.Theme, focused: bool) void {
+fn renderMultilineInput(win: vaxis.Window, app: *app_mod.App, theme: theme_mod.Theme, focused: bool) void {
     const input = &app.ui.import_spec_input;
     const buffer = input.slice();
-    app.ui.import_spec_wrap_width = area.width;
+    app.ui.import_spec_wrap_width = win.width;
     if (!focused and buffer.len == 0) {
-        drawLineClipped(area, buf, 0, "Paste OpenAPI/Swagger JSON here", theme.muted);
+        drawLineClipped(win, 0, "Paste OpenAPI/Swagger JSON here", theme.muted);
         return;
     }
-    const metrics = measureWrapped(buffer, input.cursor, area.width);
+    const metrics = measureWrapped(buffer, input.cursor, win.width);
     const total_rows = metrics.total_rows;
-    const status_row: ?u16 = if (area.height > 1) area.height - 1 else null;
+    const status_row: ?u16 = if (win.height > 1) win.height - 1 else null;
     const view_rows: usize = if (status_row != null)
-        @intCast(area.height - 1)
+        @intCast(win.height - 1)
     else
-        @intCast(area.height);
+        @intCast(win.height);
     ensureScroll(&app.ui.import_spec_scroll, metrics.cursor_row, total_rows, @intCast(view_rows));
     const scroll = app.ui.import_spec_scroll;
 
     renderWrappedView(
-        area,
-        buf,
+        win,
         buffer,
-        area.width,
+        win.width,
         scroll,
         view_rows,
         metrics.cursor_row,
@@ -163,48 +158,49 @@ fn renderMultilineInput(area: zithril.Rect, buf: *zithril.Buffer, app: *app_mod.
             "Row {d}/{d}  PgUp/PgDn scroll",
             .{ line_no, total_rows },
         ) catch "";
-        drawLineClipped(area, buf, row_index, info, theme.muted);
+        drawLineClipped(win, row_index, info, theme.muted);
     }
 }
 
-fn drawFolderLine(allocator: std.mem.Allocator, area: zithril.Rect, buf: *zithril.Buffer, row: u16, app: *app_mod.App, theme: theme_mod.Theme) void {
-    if (row >= area.height) return;
+fn drawFolderLine(allocator: std.mem.Allocator, win: vaxis.Window, row: u16, app: *app_mod.App, theme: theme_mod.Theme) void {
+    if (row >= win.height) return;
     const focus = app.ui.import_focus == .folder;
     const label = folderLabel(app);
     var value_style = theme.text;
-    if (focus) value_style = value_style.reverse();
+    if (focus) value_style.reverse = true;
     const line = std.fmt.allocPrint(allocator, "Folder: {s}  (use arrows)", .{label}) catch return;
-    drawLineClipped(area, buf, row, line, value_style);
+    drawLineClipped(win, row, line, value_style);
 }
 
-fn drawNewFolderLine(area: zithril.Rect, buf: *zithril.Buffer, row: u16, app: *app_mod.App, theme: theme_mod.Theme) void {
-    if (row >= area.height) return;
+fn drawNewFolderLine(win: vaxis.Window, row: u16, app: *app_mod.App, theme: theme_mod.Theme) void {
+    if (row >= win.height) return;
     const selected = isNewFolderSelected(app);
     const value = app.ui.import_new_folder_input.slice();
     if (!selected and value.len == 0) {
-        drawLineClipped(area, buf, row, "New folder: select 'New Folder\u{2026}' to name", theme.muted);
+        drawLineClipped(win, row, "New folder: select 'New Folder…' to name", theme.muted);
         return;
     }
     const placeholder = "New folder name";
     const focused = app.ui.import_focus == .folder and selected;
     if (value.len == 0 and !focused) {
-        drawLineClipped(area, buf, row, placeholder, theme.muted);
+        drawLineClipped(win, row, placeholder, theme.muted);
         return;
     }
     const cursor_style = cursorStyle(theme, focused);
     const line_prefix = "New folder: ";
     const prefix_len: u16 = @intCast(line_prefix.len);
-    if (prefix_len >= area.width) return;
-    buf.setString(area.x, area.y + row, line_prefix, theme.muted);
-    const input_area = zithril.Rect.init(
-        area.x + prefix_len,
-        area.y + row,
-        area.width - prefix_len,
-        1,
-    );
+    if (prefix_len >= win.width) return;
+    const prefix_segments = [_]vaxis.Segment{.{ .text = line_prefix, .style = theme.muted }};
+    _ = win.print(prefix_segments[0..], .{ .row_offset = row, .wrap = .none });
+    const input_win = win.child(.{
+        .x_off = prefix_len,
+        .y_off = row,
+        .width = win.width - prefix_len,
+        .height = 1,
+        .border = .{ .where = .none },
+    });
     drawInputLineWithCursor(
-        input_area,
-        buf,
+        input_win,
         0,
         value,
         app.ui.import_new_folder_input.cursor,
@@ -214,35 +210,34 @@ fn drawNewFolderLine(area: zithril.Rect, buf: *zithril.Buffer, row: u16, app: *a
     );
 }
 
-fn drawActionsLine(area: zithril.Rect, buf: *zithril.Buffer, row: u16, app: *app_mod.App, theme: theme_mod.Theme) void {
-    if (row >= area.height) return;
+fn drawActionsLine(allocator: std.mem.Allocator, win: vaxis.Window, row: u16, app: *app_mod.App, theme: theme_mod.Theme) void {
+    if (row >= win.height) return;
     const focus = app.ui.import_focus == .actions;
     const import_selected = app.ui.import_action_index == 0;
     const cancel_selected = app.ui.import_action_index == 1;
     var selected_style = theme.accent;
-    if (focus) selected_style = selected_style.reverse();
+    if (focus) selected_style.reverse = true;
 
     const import_label = if (import_selected) "[Import]" else " Import ";
     const cancel_label = if (cancel_selected) "[Cancel]" else " Cancel ";
-
-    var x: u16 = area.x;
-    const y = area.y + row;
-    buf.setString(x, y, import_label, if (import_selected) selected_style else theme.text);
-    x += @intCast(import_label.len);
-    buf.setString(x, y, " ", theme.muted);
-    x += 1;
-    buf.setString(x, y, cancel_label, if (cancel_selected) selected_style else theme.text);
+    const segments = [_]vaxis.Segment{
+        .{ .text = import_label, .style = if (import_selected) selected_style else theme.text },
+        .{ .text = " ", .style = theme.muted },
+        .{ .text = cancel_label, .style = if (cancel_selected) selected_style else theme.text },
+    };
+    _ = win.print(segments[0..], .{ .row_offset = row, .wrap = .none });
+    _ = allocator;
 }
 
-fn drawErrorLine(area: zithril.Rect, buf: *zithril.Buffer, row: u16, app: *app_mod.App, theme: theme_mod.Theme) void {
-    if (row >= area.height) return;
+fn drawErrorLine(win: vaxis.Window, row: u16, app: *app_mod.App, theme: theme_mod.Theme) void {
+    if (row >= win.height) return;
     if (app.ui.import_error) |message| {
-        drawLineClipped(area, buf, row, message, theme.error_style);
+        drawLineClipped(win, row, message, theme.error_style);
     }
 }
 
 fn folderLabel(app: *app_mod.App) []const u8 {
-    if (isNewFolderSelected(app)) return "New Folder\u{2026}";
+    if (isNewFolderSelected(app)) return "New Folder…";
     if (app.ui.import_folder_index == 0) return "Root";
     const idx = app.ui.import_folder_index - 1;
     if (idx >= app.templates_folders.items.len) return "Root";
@@ -254,20 +249,21 @@ fn isNewFolderSelected(app: *app_mod.App) bool {
     return app.ui.import_folder_index == new_index;
 }
 
-fn cursorStyle(theme: theme_mod.Theme, focused: bool) zithril.Style {
+fn cursorStyle(theme: theme_mod.Theme, focused: bool) vaxis.Style {
     var style = if (focused) theme.accent else theme.text;
-    if (focused) style = style.reverse();
+    style.reverse = focused;
     return style;
 }
 
-fn drawLineClipped(area: zithril.Rect, buf: *zithril.Buffer, row: u16, text: []const u8, style: zithril.Style) void {
-    if (row >= area.height or area.width == 0) return;
-    const limit: usize = @intCast(area.width);
+fn drawLineClipped(win: vaxis.Window, row: u16, text: []const u8, style: vaxis.Style) void {
+    if (row >= win.height or win.width == 0) return;
+    const limit: usize = @intCast(win.width);
     const slice = if (text.len > limit) text[0..limit] else text;
-    buf.setString(area.x, area.y + row, slice, style);
+    const segments = [_]vaxis.Segment{.{ .text = slice, .style = style }};
+    _ = win.print(&segments, .{ .row_offset = row, .wrap = .none });
     const printed: u16 = @intCast(slice.len);
-    if (printed < area.width) {
-        fillSpaces(area, buf, row, printed, area.width - printed, style);
+    if (printed < win.width) {
+        fillSpaces(win, row, printed, win.width - printed, style);
     }
 }
 
@@ -291,17 +287,16 @@ fn visibleSlice(line: []const u8, cursor_col: usize, width: u16) VisibleSlice {
 }
 
 fn drawInputLineWithCursor(
-    area: zithril.Rect,
-    buf: *zithril.Buffer,
+    win: vaxis.Window,
     row: u16,
     value: []const u8,
     cursor_col: usize,
-    style: zithril.Style,
-    cursor_style: zithril.Style,
+    style: vaxis.Style,
+    cursor_style: vaxis.Style,
     cursor_visible: bool,
 ) void {
-    if (row >= area.height) return;
-    const vis = visibleSlice(value, cursor_col, area.width);
+    if (row >= win.height) return;
+    const vis = visibleSlice(value, cursor_col, win.width);
     const before = vis.slice[0..@min(@as(usize, vis.cursor_pos), vis.slice.len)];
     const cursor_char = if (vis.cursor_pos < vis.slice.len)
         vis.slice[vis.cursor_pos .. vis.cursor_pos + 1]
@@ -309,32 +304,28 @@ fn drawInputLineWithCursor(
         " ";
     const after = if (vis.cursor_pos < vis.slice.len) vis.slice[vis.cursor_pos + 1 ..] else "";
 
-    var x: u16 = area.x;
-    const y = area.y + row;
-    if (before.len > 0) {
-        buf.setString(x, y, before, style);
-        x += @intCast(before.len);
-    }
-    buf.setString(x, y, cursor_char, if (cursor_visible) cursor_style else style);
-    x += @intCast(cursor_char.len);
-    if (after.len > 0) {
-        buf.setString(x, y, after, style);
-        x += @intCast(after.len);
-    }
-    const printed: u16 = @intCast(before.len + cursor_char.len + after.len);
-    if (printed < area.width) {
-        fillSpaces(area, buf, row, printed, area.width - printed, style);
+    const segments = [_]vaxis.Segment{
+        .{ .text = before, .style = style },
+        .{ .text = cursor_char, .style = if (cursor_visible) cursor_style else style },
+        .{ .text = after, .style = style },
+    };
+    _ = win.print(segments[0..], .{ .row_offset = row, .wrap = .none });
+    const printed_len: usize = before.len + cursor_char.len + after.len;
+    const printed: u16 = if (printed_len > win.width) win.width else @intCast(printed_len);
+    if (printed < win.width) {
+        fillSpaces(win, row, printed, win.width - printed, style);
     }
 }
 
-fn fillSpaces(area: zithril.Rect, buf: *zithril.Buffer, row: u16, col: u16, count: u16, style: zithril.Style) void {
-    if (count == 0 or col >= area.width) return;
+fn fillSpaces(win: vaxis.Window, row: u16, col: u16, count: u16, style: vaxis.Style) void {
+    if (count == 0 or col >= win.width) return;
     var remaining: u16 = count;
     var offset: u16 = col;
     const spaces = "                                                                ";
     while (remaining > 0) {
         const chunk: u16 = @min(remaining, @as(u16, spaces.len));
-        buf.setString(area.x + offset, area.y + row, spaces[0..chunk], style);
+        const segments = [_]vaxis.Segment{.{ .text = spaces[0..chunk], .style = style }};
+        _ = win.print(&segments, .{ .row_offset = row, .col_offset = offset, .wrap = .none });
         remaining -= chunk;
         offset += chunk;
     }
@@ -384,9 +375,32 @@ fn measureWrapped(buffer: []const u8, cursor_idx: usize, width: u16) WrapMetrics
     return .{ .total_rows = total_rows, .cursor_row = cursor_row, .cursor_col = cursor_col };
 }
 
+fn wrappedSliceAt(buffer: []const u8, width: u16, row_index: usize) []const u8 {
+    if (width == 0) return "";
+    const wrap_width: usize = @intCast(width);
+    var current_row: usize = 0;
+    var line_start: usize = 0;
+    var idx: usize = 0;
+    while (idx <= buffer.len) : (idx += 1) {
+        if (idx == buffer.len or buffer[idx] == '\n') {
+            const line_len = idx - line_start;
+            const line_rows = if (line_len == 0) 1 else (line_len + wrap_width - 1) / wrap_width;
+            if (row_index < current_row + line_rows) {
+                const offset = row_index - current_row;
+                const start = line_start + offset * wrap_width;
+                const end = @min(line_start + line_len, start + wrap_width);
+                if (start > line_start + line_len) return "";
+                return buffer[start..end];
+            }
+            current_row += line_rows;
+            line_start = idx + 1;
+        }
+    }
+    return "";
+}
+
 fn renderWrappedView(
-    area: zithril.Rect,
-    buf: *zithril.Buffer,
+    win: vaxis.Window,
     buffer: []const u8,
     width: u16,
     scroll: usize,
@@ -400,7 +414,7 @@ fn renderWrappedView(
     if (view_rows == 0 or width == 0) return;
     const wrap_width: usize = @intCast(width);
     const view_end = scroll + view_rows;
-    const cs = cursorStyle(theme, focused);
+    const cursor_style = cursorStyle(theme, focused);
     var row_index: usize = 0;
     var line_start: usize = 0;
     var idx: usize = 0;
@@ -424,24 +438,23 @@ fn renderWrappedView(
                 const global_row = row_index + offset;
                 const out_row = global_row - scroll;
                 while (next_row < out_row) : (next_row += 1) {
-                    drawLineClipped(area, buf, @intCast(next_row), "", theme.text);
+                    drawLineClipped(win, @intCast(next_row), "", theme.text);
                 }
                 const start = line_start + offset * wrap_width;
                 const end = @min(line_start + line_len, start + wrap_width);
                 const slice = if (start > line_start + line_len) "" else buffer[start..end];
                 if (global_row == cursor_row) {
                     drawInputLineWithCursor(
-                        area,
-                        buf,
+                        win,
                         @intCast(out_row),
                         slice,
                         cursor_col,
                         theme.text,
-                        cs,
+                        cursor_style,
                         focused and cursor_visible,
                     );
                 } else {
-                    drawLineClipped(area, buf, @intCast(out_row), slice, theme.text);
+                    drawLineClipped(win, @intCast(out_row), slice, theme.text);
                 }
                 next_row = out_row + 1;
             }
@@ -453,7 +466,7 @@ fn renderWrappedView(
     }
 
     while (next_row < view_rows) : (next_row += 1) {
-        drawLineClipped(area, buf, @intCast(next_row), "", theme.text);
+        drawLineClipped(win, @intCast(next_row), "", theme.text);
     }
 }
 

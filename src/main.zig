@@ -1,17 +1,177 @@
 const std = @import("std");
-const vaxis = @import("vaxis");
+const zithril = @import("zithril");
 const app_mod = @import("lazycurl_app");
 const ui = @import("lazycurl_ui");
 
-const Event = vaxis.Event;
+pub const panic = zithril.terminal_panic;
+
+const State = struct {
+    app: *app_mod.App,
+    runtime: *app_mod.Runtime,
+    allocator: std.mem.Allocator,
+
+    fn update(state: *State, event: zithril.Event) zithril.Action {
+        switch (event) {
+            .key => |key| {
+                const allow_base = state.app.state == .normal;
+
+                // Ctrl+X / F10: quit, Ctrl+R / F5: execute
+                if (allow_base) {
+                    switch (key.code) {
+                        .char => |c| {
+                            if (c == 'x' and key.modifiers.ctrl) return zithril.Action.quit_action;
+                            if (c == 'r' and key.modifiers.ctrl) {
+                                executeRequest(state);
+                            }
+                        },
+                        .f => |n| {
+                            if (n == 10) return zithril.Action.quit_action;
+                            if (n == 5) {
+                                executeRequest(state);
+                            }
+                        },
+                        else => {},
+                    }
+                }
+
+                if (toKeyInput(key)) |input| {
+                    const should_exit = state.app.handleKey(input, state.runtime) catch false;
+                    if (should_exit) {
+                        return zithril.Action.quit_action;
+                    }
+                }
+            },
+            .mouse => |mouse| {
+                handleMouse(state, mouse);
+            },
+            .tick => {
+                state.runtime.tick() catch {};
+                if (state.runtime.last_result != null and !state.runtime.last_result_handled) {
+                    _ = state.app.addHistoryFromCurrent(state.runtime) catch {};
+                    state.runtime.last_result_handled = true;
+                }
+                state.app.toggleCursor();
+            },
+            .resize => {},
+            .command_result => {},
+        }
+        return zithril.Action.none_action;
+    }
+
+    fn view(state: *State, frame: *zithril.Frame(zithril.App(State).DefaultMaxWidgets)) void {
+        const area = frame.size();
+        var arena = std.heap.ArenaAllocator.init(state.allocator);
+        defer arena.deinit();
+        const frame_alloc = arena.allocator();
+        ui.render(frame_alloc, area, frame.buffer, state.app, state.runtime) catch {};
+    }
+
+    fn executeRequest(state: *State) void {
+        state.app.applyMethodDropdownSelection();
+        const command = state.app.executeCommand() catch return;
+        defer state.app.allocator.free(command);
+        _ = state.app.prepareHistorySnapshot() catch {};
+        state.app.clearOutputOverride();
+        state.app.resetOutputScroll();
+        state.runtime.startExecution(command) catch {
+            state.app.clearPendingHistorySnapshot();
+        };
+    }
+
+    fn handleMouse(state: *State, mouse: zithril.Mouse) void {
+        if (state.app.ui.output_rect) |rect| {
+            if (rect.contains(@intCast(mouse.x), @intCast(mouse.y))) {
+                switch (mouse.kind) {
+                    .scroll_up => state.app.scrollOutputLines(-3),
+                    .scroll_down => state.app.scrollOutputLines(3),
+                    .down => {
+                        if (state.app.ui.output_copy_rect) |copy_rect| {
+                            if (copy_rect.contains(@intCast(mouse.x), @intCast(mouse.y))) {
+                                // TODO: clipboard support - zithril does not expose copyToSystemClipboard
+                                const body = state.app.ui.output_override orelse state.runtime.outputBody();
+                                if (body.len > 0) {
+                                    state.app.markOutputCopied();
+                                }
+                            }
+                        }
+                        if (state.app.ui.output_format_rect) |format_rect| {
+                            if (format_rect.contains(@intCast(mouse.x), @intCast(mouse.y))) {
+                                state.app.formatOutputJson(state.runtime);
+                            }
+                        }
+                    },
+                    else => {},
+                }
+            }
+        }
+        if (state.app.ui.command_copy_rect) |rect| {
+            if (rect.contains(@intCast(mouse.x), @intCast(mouse.y))) {
+                switch (mouse.kind) {
+                    .down => {
+                        // TODO: clipboard support
+                    },
+                    else => {},
+                }
+            }
+        }
+    }
+};
+
+fn toKeyInput(key: zithril.Key) ?app_mod.KeyInput {
+    const code: app_mod.KeyCode = switch (key.code) {
+        .char => |c| blk: {
+            if (c > 0x7f) return null;
+            const byte: u8 = @intCast(c);
+            if (key.modifiers.ctrl) {
+                if (std.ascii.isPrint(byte)) {
+                    break :blk .{ .char = byte };
+                }
+                return null;
+            }
+            if (std.ascii.isPrint(byte)) {
+                break :blk .{ .char = byte };
+            }
+            return null;
+        },
+        .enter => .enter,
+        .escape => .escape,
+        .backspace => .backspace,
+        .delete => .delete,
+        .tab => if (key.modifiers.shift) .back_tab else .tab,
+        .backtab => .back_tab,
+        .up => .up,
+        .down => .down,
+        .left => .left,
+        .right => .right,
+        .home => .home,
+        .end => .end,
+        .page_up => .page_up,
+        .page_down => .page_down,
+        .f => |n| switch (n) {
+            2 => .f2,
+            3 => .f3,
+            4 => .f4,
+            6 => .f6,
+            10 => .f10,
+            else => return null,
+        },
+        else => return null,
+    };
+    return .{
+        .code = code,
+        .mods = .{
+            .shift = key.modifiers.shift,
+            .ctrl = key.modifiers.ctrl,
+        },
+    };
+}
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa: std.heap.GeneralPurposeAllocator(.{}) = .init;
     defer {
         const leaked = gpa.deinit();
         if (leaked == .leak) std.log.warn("memory leaked during shutdown", .{});
     }
-
     const allocator = gpa.allocator();
 
     var app = try app_mod.App.init(allocator);
@@ -20,279 +180,21 @@ pub fn main() !void {
     var runtime = try app_mod.Runtime.init(allocator);
     defer runtime.deinit();
 
-    var tty_buffer: [1024]u8 = undefined;
-    var tty = try vaxis.Tty.init(&tty_buffer);
-    defer tty.deinit();
-
-    var vx = try vaxis.init(allocator, .{
-        .system_clipboard_allocator = allocator,
-        .kitty_keyboard_flags = .{ .report_events = true },
-    });
-    defer vx.deinit(allocator, tty.writer());
-
-    var loop: vaxis.Loop(Event) = .{ .tty = &tty, .vaxis = &vx };
-    if (!vx.state.in_band_resize) {
-        try loop.init();
-    }
-    try loop.start();
-    defer loop.stop();
-
-    try vx.enterAltScreen(tty.writer());
-    defer vx.exitAltScreen(tty.writer()) catch {};
-
-    try vx.queryTerminal(tty.writer(), 1 * std.time.ns_per_s);
-    try vx.setBracketedPaste(tty.writer(), true);
-    defer vx.setBracketedPaste(tty.writer(), false) catch {};
-
-    try vx.setMouseMode(tty.writer(), true);
-    defer vx.setMouseMode(tty.writer(), false) catch {};
-
-    const tick_ms: u64 = 33;
-    var next_frame_ms: u64 = @intCast(std.time.milliTimestamp());
-
-    var running = true;
-    while (running) {
-        const now_ms: u64 = @intCast(std.time.milliTimestamp());
-        if (now_ms < next_frame_ms) {
-            std.Thread.sleep((next_frame_ms - now_ms) * std.time.ns_per_ms);
-        }
-        next_frame_ms = @as(u64, @intCast(std.time.milliTimestamp())) + tick_ms;
-
-        loop.queue.lock();
-        const max_events_per_frame: usize = 200;
-        var processed: usize = 0;
-        var pending_event: ?Event = null;
-        while (processed < max_events_per_frame) : (processed += 1) {
-            const event_opt = if (pending_event) |event| blk: {
-                pending_event = null;
-                break :blk event;
-            } else loop.queue.drain();
-            if (event_opt == null) break;
-            const event = event_opt.?;
-            switch (event) {
-                .key_press => |key| {
-                    if (coalesceChar(key)) |first| {
-                        var text_buf = std.ArrayList(u8).initCapacity(allocator, 0) catch {
-                            handleEvent(allocator, &vx, tty.writer(), &app, &runtime, event, &running) catch {};
-                            continue;
-                        };
-                        defer text_buf.deinit(allocator);
-                        text_buf.append(allocator, first) catch {
-                            handleEvent(allocator, &vx, tty.writer(), &app, &runtime, event, &running) catch {};
-                            continue;
-                        };
-                        while (processed + 1 < max_events_per_frame) {
-                            if (loop.queue.drain()) |next_event| {
-                                processed += 1;
-                                switch (next_event) {
-                                    .key_press => |next_key| {
-                                        if (coalesceChar(next_key)) |next_ch| {
-                                            text_buf.append(allocator, next_ch) catch {};
-                                            continue;
-                                        }
-                                    },
-                                    else => {},
-                                }
-                                pending_event = next_event;
-                                break;
-                            } else {
-                                break;
-                            }
-                        }
-                        if (text_buf.items.len > 1) {
-                            const input: app_mod.KeyInput = .{ .code = .{ .paste = text_buf.items }, .mods = .{} };
-                            _ = app.handleKey(input, &runtime) catch {};
-                        } else if (toKeyInput(key)) |input| {
-                            _ = app.handleKey(input, &runtime) catch {};
-                        }
-                        continue;
-                    }
-                },
-                else => {},
-            }
-            handleEvent(allocator, &vx, tty.writer(), &app, &runtime, event, &running) catch {};
-        }
-        loop.queue.unlock();
-
-        try runtime.tick();
-        if (runtime.last_result != null and !runtime.last_result_handled) {
-            _ = app.addHistoryFromCurrent(&runtime) catch {};
-            runtime.last_result_handled = true;
-        }
-        app.toggleCursor();
-        try render(allocator, &vx, tty.writer(), &app, &runtime);
-    }
-}
-
-fn handleEvent(
-    allocator: std.mem.Allocator,
-    vx: *vaxis.Vaxis,
-    tty: *std.Io.Writer,
-    app: *app_mod.App,
-    runtime: *app_mod.Runtime,
-    event: Event,
-    running: *bool,
-) !void {
-    switch (event) {
-        .winsize => |winsize| {
-            try vx.resize(allocator, tty, winsize);
-            vx.queueRefresh();
-        },
-        .key_press => |key| {
-            const allow_base = app.state == .normal;
-            if (allow_base and (key.matchShortcut('x', .{ .ctrl = true }) or key.codepoint == vaxis.Key.f10)) {
-                running.* = false;
-                return;
-            }
-
-            if (allow_base and (key.matchShortcut('r', .{ .ctrl = true }) or key.codepoint == vaxis.Key.f5)) {
-                app.applyMethodDropdownSelection();
-                const command = try app.executeCommand();
-                defer app.allocator.free(command);
-                _ = app.prepareHistorySnapshot() catch {};
-                app.clearOutputOverride();
-                app.resetOutputScroll();
-                runtime.startExecution(command) catch {
-                    app.clearPendingHistorySnapshot();
-                };
-            }
-
-            if (toKeyInput(key)) |input| {
-                const should_exit = try app.handleKey(input, runtime);
-                if (should_exit) {
-                running.* = false;
-                }
-            }
-        },
-        .mouse => |mouse| {
-            if (app.ui.output_rect) |rect| {
-                if (rect.contains(mouse.col, mouse.row)) {
-                    switch (mouse.button) {
-                        .wheel_up => app.scrollOutputLines(-3),
-                        .wheel_down => app.scrollOutputLines(3),
-                        .left => {
-                            if (mouse.type == .press) {
-                                if (app.ui.output_copy_rect) |copy_rect| {
-                                    if (copy_rect.contains(mouse.col, mouse.row)) {
-                                        const body = app.ui.output_override orelse runtime.outputBody();
-                                        if (body.len > 0) {
-                                            if (vx.copyToSystemClipboard(tty, body, allocator)) |_| {
-                                                app.markOutputCopied();
-                                            } else |_| {}
-                                        }
-                                    }
-                                }
-                                if (app.ui.output_format_rect) |format_rect| {
-                                    if (format_rect.contains(mouse.col, mouse.row)) {
-                                        app.formatOutputJson(runtime);
-                                    }
-                                }
-                            }
-                        },
-                        else => {},
-                    }
-                }
-            }
-            if (app.ui.command_copy_rect) |rect| {
-                if (rect.contains(mouse.col, mouse.row)) {
-                    switch (mouse.button) {
-                        .left => {
-                            if (mouse.type == .press) {
-                                const preview = app.buildCommandPreview(allocator) catch return;
-                                defer allocator.free(preview);
-                                if (vx.copyToSystemClipboard(tty, preview, allocator)) |_| {} else |_| {}
-                            }
-                        },
-                        else => {},
-                    }
-                }
-            }
-        },
-        else => {},
-    }
-}
-
-fn render(
-    allocator: std.mem.Allocator,
-    vx: *vaxis.Vaxis,
-    tty: *std.Io.Writer,
-    app: *app_mod.App,
-    runtime: *app_mod.Runtime,
-) !void {
-    const win = vx.window();
-    win.clear();
-    var arena = std.heap.ArenaAllocator.init(allocator);
-    defer arena.deinit();
-    const frame_alloc = arena.allocator();
-    try ui.render(frame_alloc, win, app, runtime);
-    try vx.render(tty);
-}
-
-fn toKeyInput(key: vaxis.Key) ?app_mod.KeyInput {
-    if (key.codepoint == vaxis.Key.tab) {
-        return .{ .code = if (key.mods.shift) .back_tab else .tab, .mods = modsFromKey(key) };
-    }
-    if (key.codepoint == vaxis.Key.up) return .{ .code = .up, .mods = modsFromKey(key) };
-    if (key.codepoint == vaxis.Key.down) return .{ .code = .down, .mods = modsFromKey(key) };
-    if (key.codepoint == vaxis.Key.left) return .{ .code = .left, .mods = modsFromKey(key) };
-    if (key.codepoint == vaxis.Key.right) return .{ .code = .right, .mods = modsFromKey(key) };
-    if (key.codepoint == vaxis.Key.enter) return .{ .code = .enter, .mods = modsFromKey(key) };
-    if (key.codepoint == vaxis.Key.escape) return .{ .code = .escape, .mods = modsFromKey(key) };
-    if (key.codepoint == vaxis.Key.backspace) return .{ .code = .backspace, .mods = modsFromKey(key) };
-    if (key.codepoint == vaxis.Key.delete) return .{ .code = .delete, .mods = modsFromKey(key) };
-    if (key.codepoint == vaxis.Key.home) return .{ .code = .home, .mods = modsFromKey(key) };
-    if (key.codepoint == vaxis.Key.end) return .{ .code = .end, .mods = modsFromKey(key) };
-    if (key.codepoint == vaxis.Key.page_up or key.codepoint == vaxis.Key.kp_page_up)
-        return .{ .code = .page_up, .mods = modsFromKey(key) };
-    if (key.codepoint == vaxis.Key.page_down or key.codepoint == vaxis.Key.kp_page_down)
-        return .{ .code = .page_down, .mods = modsFromKey(key) };
-    if (key.codepoint == vaxis.Key.f2) return .{ .code = .f2, .mods = modsFromKey(key) };
-    if (key.codepoint == vaxis.Key.f3) return .{ .code = .f3, .mods = modsFromKey(key) };
-    if (key.codepoint == vaxis.Key.f4) return .{ .code = .f4, .mods = modsFromKey(key) };
-    if (key.codepoint == vaxis.Key.f6) return .{ .code = .f6, .mods = modsFromKey(key) };
-    if (key.codepoint == vaxis.Key.f10) return .{ .code = .f10, .mods = modsFromKey(key) };
-
-    if (key.text) |text| {
-        if (text.len > 1) {
-            return .{ .code = .{ .paste = text }, .mods = modsFromKey(key) };
-        }
-        if (!key.mods.ctrl and text.len == 1) {
-            const byte: u8 = text[0];
-            if (std.ascii.isPrint(byte)) {
-                return .{ .code = .{ .char = byte }, .mods = modsFromKey(key) };
-            }
-        }
-    }
-
-    const codepoint: u21 = if (key.mods.ctrl and key.base_layout_codepoint != null)
-        key.base_layout_codepoint.?
-    else
-        key.codepoint;
-
-    if (codepoint <= 0x7f) {
-        const byte: u8 = @intCast(codepoint);
-        if (std.ascii.isPrint(byte)) {
-            return .{ .code = .{ .char = byte }, .mods = modsFromKey(key) };
-        }
-    }
-
-    return null;
-}
-
-fn coalesceChar(key: vaxis.Key) ?u8 {
-    if (key.mods.ctrl) return null;
-    if (key.text) |text| {
-        if (text.len != 1) return null;
-        const byte: u8 = text[0];
-        if (!std.ascii.isPrint(byte)) return null;
-        return byte;
-    }
-    return null;
-}
-
-fn modsFromKey(key: vaxis.Key) app_mod.Modifiers {
-    return .{
-        .ctrl = key.mods.ctrl,
-        .shift = key.mods.shift,
+    var state = State{
+        .app = &app,
+        .runtime = &runtime,
+        .allocator = allocator,
     };
+
+    var zapp = zithril.App(State).init(.{
+        .state = &state,
+        .update = State.update,
+        .view = State.view,
+        .tick_rate_ms = 33,
+        .mouse_capture = true,
+        .paste_bracket = true,
+        .alternate_screen = true,
+    });
+
+    try zapp.run(allocator);
 }

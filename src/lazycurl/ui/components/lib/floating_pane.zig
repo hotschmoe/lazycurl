@@ -1,13 +1,13 @@
 const std = @import("std");
-const vaxis = @import("vaxis");
+const zithril = @import("zithril");
 const boxed = @import("boxed.zig");
 
 pub const Options = struct {
     title: []const u8,
     right_label: []const u8 = "",
-    border_style: vaxis.Style,
-    title_style: vaxis.Style,
-    right_style: vaxis.Style,
+    border_style: zithril.Style,
+    title_style: zithril.Style,
+    right_style: zithril.Style,
     max_width: u16 = 84,
     max_height: u16 = 24,
     min_width: u16 = 24,
@@ -15,33 +15,36 @@ pub const Options = struct {
     margin: u16 = 2,
 };
 
-pub fn begin(allocator: std.mem.Allocator, win: vaxis.Window, options: Options) ?vaxis.Window {
-    if (win.width == 0 or win.height == 0) return null;
+pub fn begin(allocator: std.mem.Allocator, area: zithril.Rect, buf: *zithril.Buffer, options: Options) ?zithril.Rect {
+    if (area.width == 0 or area.height == 0) return null;
     const margin = options.margin;
-    const modal_w: u16 = if (win.width > margin * 2 + 2)
-        @min(win.width - margin * 2, options.max_width)
+    const modal_w: u16 = if (area.width > margin * 2 + 2)
+        @min(area.width - margin * 2, options.max_width)
     else
-        win.width;
-    const modal_h: u16 = if (win.height > margin * 2 + 2)
-        @min(win.height - margin * 2, options.max_height)
+        area.width;
+    const modal_h: u16 = if (area.height > margin * 2 + 2)
+        @min(area.height - margin * 2, options.max_height)
     else
-        win.height;
+        area.height;
     if (modal_w < options.min_width or modal_h < options.min_height) return null;
 
-    const x_off: u16 = if (win.width > modal_w) (win.width - modal_w) / 2 else 0;
-    const y_off: u16 = if (win.height > modal_h) (win.height - modal_h) / 2 else 0;
+    const x_off: u16 = if (area.width > modal_w) (area.width - modal_w) / 2 else 0;
+    const y_off: u16 = if (area.height > modal_h) (area.height - modal_h) / 2 else 0;
 
-    const modal = win.child(.{
-        .x_off = x_off,
-        .y_off = y_off,
-        .width = modal_w,
-        .height = modal_h,
-        .border = .{ .where = .none },
-    });
+    const modal_area = zithril.Rect.init(
+        area.x + x_off,
+        area.y + y_off,
+        modal_w,
+        modal_h,
+    );
+
+    // Clear the modal background
+    buf.fill(modal_area, zithril.Cell.styled(' ', zithril.Style.empty));
 
     const inner = boxed.begin(
         allocator,
-        modal,
+        modal_area,
+        buf,
         options.title,
         options.right_label,
         options.border_style,

@@ -1,24 +1,22 @@
-const zithril = @import("zithril");
+const vaxis = @import("vaxis");
 
 pub fn drawInputWithCursorPrefix(
-    area: zithril.Rect,
-    buf: *zithril.Buffer,
+    win: vaxis.Window,
     row: u16,
     value: []const u8,
     cursor: usize,
-    style: zithril.Style,
-    cursor_style: zithril.Style,
+    style: vaxis.Style,
+    cursor_style: vaxis.Style,
     cursor_visible: bool,
     prefix: []const u8,
 ) void {
-    if (row >= area.height) return;
+    if (row >= win.height) return;
     const prefix_len: usize = prefix.len;
-    const win_width: usize = area.width;
-    const y = area.y + row;
-
+    const win_width: usize = win.width;
     if (win_width <= prefix_len) {
         const clipped = prefix[0..@min(prefix_len, win_width)];
-        buf.setString(area.x, y, clipped, style);
+        const segments = [_]vaxis.Segment{.{ .text = clipped, .style = style }};
+        _ = win.print(&segments, .{ .row_offset = row, .wrap = .none });
         return;
     }
 
@@ -35,43 +33,34 @@ pub fn drawInputWithCursorPrefix(
     const cursor_char = if (cursor_pos < visible.len) visible[cursor_pos .. cursor_pos + 1] else " ";
     const after = if (cursor_pos < visible.len) visible[cursor_pos + 1 ..] else "";
 
-    var x: u16 = area.x;
-    if (prefix.len > 0) {
-        buf.setString(x, y, prefix, style);
-        x += @intCast(prefix.len);
-    }
-    if (before.len > 0) {
-        buf.setString(x, y, before, style);
-        x += @intCast(before.len);
-    }
-    buf.setString(x, y, cursor_char, if (cursor_visible) cursor_style else style);
-    x += @intCast(cursor_char.len);
-    if (after.len > 0) {
-        buf.setString(x, y, after, style);
-    }
+    var segments: [4]vaxis.Segment = .{
+        .{ .text = prefix, .style = style },
+        .{ .text = before, .style = style },
+        .{ .text = cursor_char, .style = if (cursor_visible) cursor_style else style },
+        .{ .text = after, .style = style },
+    };
+    _ = win.print(segments[0..], .{ .row_offset = row, .wrap = .none });
 }
 
 pub fn drawInputWithCursorPrefixSuffix(
-    area: zithril.Rect,
-    buf: *zithril.Buffer,
+    win: vaxis.Window,
     row: u16,
     value: []const u8,
     cursor: usize,
-    style: zithril.Style,
-    cursor_style: zithril.Style,
+    style: vaxis.Style,
+    cursor_style: vaxis.Style,
     cursor_visible: bool,
     prefix: []const u8,
     suffix: []const u8,
-    suffix_style: zithril.Style,
+    suffix_style: vaxis.Style,
 ) void {
-    if (row >= area.height) return;
+    if (row >= win.height) return;
     const prefix_len: usize = prefix.len;
-    const win_width: usize = area.width;
-    const y = area.y + row;
-
+    const win_width: usize = win.width;
     if (win_width <= prefix_len) {
         const clipped = prefix[0..@min(prefix_len, win_width)];
-        buf.setString(area.x, y, clipped, style);
+        const segments = [_]vaxis.Segment{.{ .text = clipped, .style = style }};
+        _ = win.print(&segments, .{ .row_offset = row, .wrap = .none });
         return;
     }
 
@@ -93,24 +82,14 @@ pub fn drawInputWithCursorPrefixSuffix(
     const before = visible[0..@min(cursor_pos, visible.len)];
     const cursor_char = if (cursor_pos < visible.len) visible[cursor_pos .. cursor_pos + 1] else " ";
     const after = if (cursor_pos < visible.len) visible[cursor_pos + 1 ..] else "";
-    const suffix_slice = suffix[0..suffix_len];
 
-    var x: u16 = area.x;
-    if (prefix.len > 0) {
-        buf.setString(x, y, prefix, style);
-        x += @intCast(prefix.len);
-    }
-    if (before.len > 0) {
-        buf.setString(x, y, before, style);
-        x += @intCast(before.len);
-    }
-    buf.setString(x, y, cursor_char, if (cursor_visible) cursor_style else style);
-    x += @intCast(cursor_char.len);
-    if (after.len > 0) {
-        buf.setString(x, y, after, style);
-        x += @intCast(after.len);
-    }
-    if (suffix_slice.len > 0) {
-        buf.setString(x, y, suffix_slice, suffix_style);
-    }
+    const suffix_slice = suffix[0..suffix_len];
+    var segments: [5]vaxis.Segment = .{
+        .{ .text = prefix, .style = style },
+        .{ .text = before, .style = style },
+        .{ .text = cursor_char, .style = if (cursor_visible) cursor_style else style },
+        .{ .text = after, .style = style },
+        .{ .text = suffix_slice, .style = suffix_style },
+    };
+    _ = win.print(segments[0..], .{ .row_offset = row, .wrap = .none });
 }

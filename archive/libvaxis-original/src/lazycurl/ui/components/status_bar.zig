@@ -1,29 +1,28 @@
 const std = @import("std");
-const zithril = @import("zithril");
+const vaxis = @import("vaxis");
 const app_mod = @import("lazycurl_app");
 const theme_mod = @import("../theme.zig");
 const boxed = @import("lib/boxed.zig");
 
 pub fn render(
     allocator: std.mem.Allocator,
-    area: zithril.Rect,
-    buf: *zithril.Buffer,
+    win: vaxis.Window,
     app: *app_mod.App,
     theme: theme_mod.Theme,
 ) void {
     const state = stateLabel(app.state);
     const tab = tabLabel(app.ui.active_tab);
-    const inner = boxed.begin(allocator, area, buf, "Status", "", theme.border, theme.title, theme.muted);
+    const inner = boxed.begin(allocator, win, "Status", "", theme.border, theme.title, theme.muted);
     const line_state = std.fmt.allocPrint(allocator, "State: {s} | Tab: {s}", .{ state, tab }) catch return;
-    drawLine(inner, buf, 0, line_state, theme.text);
+    drawLine(inner, 0, line_state, theme.text);
 
     const edit_value = editLabel(app);
     var edit_style = theme.text;
     if (app.state == .editing and app.editing_field != null) {
-        edit_style = edit_style.bold();
+        edit_style.bold = true;
     }
     const line_edit = std.fmt.allocPrint(allocator, "Edit: {s}", .{edit_value}) catch return;
-    drawLine(inner, buf, 1, line_edit, edit_style);
+    drawLine(inner, 1, line_edit, edit_style);
 
     if (baseAvailable(app)) {
         const right = buildBaseShortcutRows(allocator, inner.width);
@@ -31,31 +30,31 @@ pub fn render(
             @intCast(line_state.len),
             @intCast(line_edit.len),
         };
-        drawRightLines(inner, buf, right.lines[0..right.len], &left_lens, theme.muted);
+        drawRightLines(inner, right.lines[0..right.len], &left_lens, theme.muted);
     }
 }
 
-fn drawLine(area: zithril.Rect, buf: *zithril.Buffer, row: u16, text: []const u8, style: zithril.Style) void {
-    if (row >= area.height) return;
-    buf.setString(area.x, area.y + row, text, style);
+fn drawLine(win: vaxis.Window, row: u16, text: []const u8, style: vaxis.Style) void {
+    const segments = [_]vaxis.Segment{.{ .text = text, .style = style }};
+    _ = win.print(&segments, .{ .row_offset = row, .wrap = .none });
 }
 
 fn drawRightLines(
-    area: zithril.Rect,
-    buf: *zithril.Buffer,
+    win: vaxis.Window,
     lines: []const []const u8,
     left_lens: []const u16,
-    style: zithril.Style,
+    style: vaxis.Style,
 ) void {
     for (lines, 0..) |line, idx| {
-        if (idx >= area.height) break;
+        if (idx >= win.height) break;
         if (line.len == 0) continue;
         const right_len: u16 = @intCast(line.len);
-        if (area.width < right_len) continue;
+        if (win.width < right_len) continue;
         const left_len: u16 = if (idx < left_lens.len) left_lens[idx] else 0;
-        const right_col: u16 = area.width - right_len;
+        const right_col: u16 = win.width - right_len;
         if (right_col <= left_len + 1) continue;
-        buf.setString(area.x + right_col, area.y + @as(u16, @intCast(idx)), line, style);
+        const segment = vaxis.Segment{ .text = line, .style = style };
+        _ = win.print(&.{segment}, .{ .row_offset = @intCast(idx), .col_offset = right_col, .wrap = .none });
     }
 }
 

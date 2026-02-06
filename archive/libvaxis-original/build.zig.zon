@@ -32,9 +32,9 @@
     // Once all dependencies are fetched, `zig build` no longer requires
     // internet connectivity.
     .dependencies = .{
-        .zithril = .{
-            .url = "git+https://github.com/hotschmoe/zithril#4cd90e62953bccfb537dc872b0a958c4d0ad7554",
-            .hash = "zithril-0.10.0-2-p2iMMzDgBY1A78cRz10q2G8raHxaHfryA2WQFIMKv7",
+        .vaxis = .{
+            .url = "git+https://github.com/rockorager/libvaxis.git?ref=main#75035b169e91a51c233f3742161f8eb8eafca659",
+            .hash = "vaxis-0.5.1-BWNV_IE-CQBYmSf_boEKUyv6den0Gmj5LksxvdCx2pBL",
         },
     },
     .paths = .{

@@ -14,7 +14,7 @@ pub fn defaultMetadata() AppMetadata {
         .description = "lazycurl - Terminal Visual Curl",
         .version = "0.1.0-dev",
         .zig_version = "0.15.1",
-        .tui_backend = "zithril",
+        .tui_backend = "libvaxis",
     };
 }
 

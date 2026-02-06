@@ -1,35 +1,35 @@
 const std = @import("std");
-const zithril = @import("zithril");
+const vaxis = @import("vaxis");
 const app_mod = @import("lazycurl_app");
 const theme_mod = @import("../theme.zig");
 const boxed = @import("lib/boxed.zig");
 
 pub fn render(
     allocator: std.mem.Allocator,
-    area: zithril.Rect,
-    buf: *zithril.Buffer,
+    win: vaxis.Window,
     app: *app_mod.App,
     theme: theme_mod.Theme,
 ) void {
-    if (area.height == 0) return;
+    if (win.height == 0) return;
     const focused = app.ui.left_panel != null and app.ui.left_panel.? == .templates;
     var header_style = if (focused) theme.accent else theme.title;
-    if (focused) header_style = header_style.reverse();
+    if (focused) header_style.reverse = true;
     const title = std.fmt.allocPrint(allocator, "Templates ({d})", .{app.templates.items.len}) catch return;
     const border_style = if (focused) theme.accent else theme.border;
-    const inner = boxed.begin(allocator, area, buf, title, "", border_style, header_style, theme.muted);
+    const inner = boxed.begin(allocator, win, title, "", border_style, header_style, theme.muted);
 
     if (!app.ui.templates_expanded) return;
 
     const available = if (inner.height > 1) inner.height - 1 else 0;
     const columns = columnLayout(inner.width);
-    drawColumnsHeader(allocator, inner, buf, 0, columns, theme);
-    _ = renderTemplateList(allocator, inner, buf, 1, app, theme, available, columns);
+    drawColumnsHeader(allocator, inner, 0, columns, theme);
+    _ = renderTemplateList(allocator, inner, 1, app, theme, available, columns);
 }
 
-fn drawLine(area: zithril.Rect, buf: *zithril.Buffer, row: u16, text: []const u8, style: zithril.Style) void {
-    if (row >= area.height) return;
-    buf.setString(area.x, area.y + row, text, style);
+fn drawLine(win: vaxis.Window, row: u16, text: []const u8, style: vaxis.Style) void {
+    if (row >= win.height) return;
+    const segments = [_]vaxis.Segment{.{ .text = text, .style = style }};
+    _ = win.print(&segments, .{ .row_offset = row, .wrap = .none });
 }
 
 const Columns = struct {
@@ -59,47 +59,40 @@ fn columnLayout(width: u16) Columns {
 
 fn drawColumnsHeader(
     allocator: std.mem.Allocator,
-    area: zithril.Rect,
-    buf: *zithril.Buffer,
+    win: vaxis.Window,
     row: u16,
     columns: Columns,
     theme: theme_mod.Theme,
 ) void {
-    if (row >= area.height) return;
+    if (row >= win.height) return;
     if (columns.url_w == 0 or columns.name_w == 0) return;
     const method_label = padOrTrim(allocator, "METHOD", columns.method_w);
     const url_label = padOrTrim(allocator, "URL", columns.url_w);
     const name_label = padOrTrim(allocator, "NAME", columns.name_w);
     const sep = " | ";
-
-    var x: u16 = area.x;
-    const y = area.y + row;
-    buf.setString(x, y, "  ", theme.muted);
-    x += 2;
-    buf.setString(x, y, method_label, theme.muted);
-    x += @intCast(method_label.len);
-    buf.setString(x, y, sep, theme.muted);
-    x += @intCast(sep.len);
-    buf.setString(x, y, url_label, theme.muted);
-    x += @intCast(url_label.len);
-    buf.setString(x, y, sep, theme.muted);
-    x += @intCast(sep.len);
-    buf.setString(x, y, name_label, theme.muted);
+    const segments = [_]vaxis.Segment{
+        .{ .text = "  ", .style = theme.muted },
+        .{ .text = method_label, .style = theme.muted },
+        .{ .text = sep, .style = theme.muted },
+        .{ .text = url_label, .style = theme.muted },
+        .{ .text = sep, .style = theme.muted },
+        .{ .text = name_label, .style = theme.muted },
+    };
+    _ = win.print(segments[0..], .{ .row_offset = row, .wrap = .none });
 }
 
 fn renderTemplateList(
     allocator: std.mem.Allocator,
-    area: zithril.Rect,
-    buf: *zithril.Buffer,
+    win: vaxis.Window,
     start_row: u16,
     app: *app_mod.App,
     theme: theme_mod.Theme,
     max_rows: usize,
     columns: Columns,
 ) u16 {
-    if (start_row >= area.height) return start_row;
+    if (start_row >= win.height) return start_row;
     if (app.templates.items.len == 0) {
-        drawLine(area, buf, start_row, "  (none)", theme.muted);
+        drawLine(win, start_row, "  (none)", theme.muted);
         return start_row + 1;
     }
 
@@ -115,19 +108,19 @@ fn renderTemplateList(
     var rendered: usize = 0;
 
     for (rows.items) |item| {
-        if (list_row >= scroll and rendered < max_rows and row < area.height) {
+        if (list_row >= scroll and rendered < max_rows and row < win.height) {
             const selected = app.ui.selected_template_row != null and app.ui.selected_template_row.? == list_row;
             if (item.kind == .folder) {
                 var style = if (selected and focus) theme.accent else theme.title;
-                if (selected and focus) style = style.reverse();
+                if (selected and focus) style.reverse = true;
                 const marker = if (item.collapsed) "[+]" else "[-]";
                 const is_editing_folder = app.state == .editing and app.editing_field != null and app.editing_field.? == .template_folder;
                 if (selected and is_editing_folder) {
-                    const cursor_style = style.notReverse();
-                    const prefix = std.fmt.allocPrint(allocator, "{s} ", .{marker}) catch return row;
+                    var cursor_style = style;
+                    cursor_style.reverse = !style.reverse;
+                    const prefix = std.fmt.allocPrint(allocator, "{s} ", .{ marker }) catch return row;
                     drawInputWithCursor(
-                        area,
-                        buf,
+                        win,
                         row,
                         app.ui.edit_input.slice(),
                         app.ui.edit_input.cursor,
@@ -138,7 +131,7 @@ fn renderTemplateList(
                     );
                 } else {
                     const line = std.fmt.allocPrint(allocator, "{s} {s}", .{ marker, item.category }) catch return row;
-                    drawLine(area, buf, row, line, style);
+                    drawLine(win, row, line, style);
                 }
             } else if (item.template_index) |idx| {
                 const template = app.templates.items[idx];
@@ -153,10 +146,10 @@ fn renderTemplateList(
                         padOrTrim(allocator, method_label, columns.method_w),
                         padOrTrim(allocator, truncate(allocator, url_label, columns.url_w), columns.url_w),
                     }) catch return row;
-                    const cursor_style = theme.accent.notReverse();
+                    var cursor_style = theme.accent;
+                    cursor_style.reverse = !theme.accent.reverse;
                     drawInputWithCursor(
-                        area,
-                        buf,
+                        win,
                         row,
                         app.ui.edit_input.slice(),
                         app.ui.edit_input.cursor,
@@ -168,8 +161,7 @@ fn renderTemplateList(
                 } else {
                     drawTemplateRow(
                         allocator,
-                        area,
-                        buf,
+                        win,
                         row,
                         columns,
                         method_label,
@@ -224,8 +216,7 @@ fn methodLabel(method: anytype) []const u8 {
 
 fn drawTemplateRow(
     allocator: std.mem.Allocator,
-    area: zithril.Rect,
-    buf: *zithril.Buffer,
+    win: vaxis.Window,
     row: u16,
     columns: Columns,
     method_label: []const u8,
@@ -235,7 +226,7 @@ fn drawTemplateRow(
     focused: bool,
     theme: theme_mod.Theme,
 ) void {
-    if (row >= area.height) return;
+    if (row >= win.height) return;
     const indicator = if (selected) ">" else " ";
     const prefix = std.fmt.allocPrint(allocator, "{s}  ", .{indicator}) catch return;
     const method_text = padOrTrim(allocator, method_label, columns.method_w);
@@ -248,47 +239,42 @@ fn drawTemplateRow(
     var prefix_style = theme.text;
     var sep_style = theme.muted;
     if (selected and focused) {
-        method_style = method_style.reverse();
-        url_style = url_style.reverse();
-        name_style = name_style.reverse();
-        prefix_style = prefix_style.reverse();
-        sep_style = sep_style.reverse();
+        method_style.reverse = true;
+        url_style.reverse = true;
+        name_style.reverse = true;
+        prefix_style.reverse = true;
+        sep_style.reverse = true;
     }
 
     const sep = " | ";
-    var x: u16 = area.x;
-    const y = area.y + row;
-    buf.setString(x, y, prefix, prefix_style);
-    x += @intCast(prefix.len);
-    buf.setString(x, y, method_text, method_style);
-    x += @intCast(method_text.len);
-    buf.setString(x, y, sep, sep_style);
-    x += @intCast(sep.len);
-    buf.setString(x, y, url_text, url_style);
-    x += @intCast(url_text.len);
-    buf.setString(x, y, sep, sep_style);
-    x += @intCast(sep.len);
-    buf.setString(x, y, name_text, name_style);
+    const segments = [_]vaxis.Segment{
+        .{ .text = prefix, .style = prefix_style },
+        .{ .text = method_text, .style = method_style },
+        .{ .text = sep, .style = sep_style },
+        .{ .text = url_text, .style = url_style },
+        .{ .text = sep, .style = sep_style },
+        .{ .text = name_text, .style = name_style },
+    };
+    _ = win.print(segments[0..], .{ .row_offset = row, .wrap = .none });
 }
 
 fn drawInputWithCursor(
-    area: zithril.Rect,
-    buf: *zithril.Buffer,
+    win: vaxis.Window,
     row: u16,
     value: []const u8,
     cursor: usize,
-    style: zithril.Style,
-    cursor_style: zithril.Style,
+    style: vaxis.Style,
+    cursor_style: vaxis.Style,
     cursor_visible: bool,
     prefix: []const u8,
 ) void {
-    if (row >= area.height) return;
+    if (row >= win.height) return;
     const prefix_len: usize = prefix.len;
-    const win_width: usize = area.width;
-    const y = area.y + row;
+    const win_width: usize = win.width;
     if (win_width <= prefix_len) {
         const clipped = prefix[0..@min(prefix_len, win_width)];
-        buf.setString(area.x, y, clipped, style);
+        const segments = [_]vaxis.Segment{.{ .text = clipped, .style = style }};
+        _ = win.print(&segments, .{ .row_offset = row, .wrap = .none });
         return;
     }
 
@@ -305,18 +291,11 @@ fn drawInputWithCursor(
     const cursor_char = if (cursor_pos < visible.len) visible[cursor_pos .. cursor_pos + 1] else " ";
     const after = if (cursor_pos < visible.len) visible[cursor_pos + 1 ..] else "";
 
-    var x: u16 = area.x;
-    if (prefix.len > 0) {
-        buf.setString(x, y, prefix, style);
-        x += @intCast(prefix.len);
-    }
-    if (before.len > 0) {
-        buf.setString(x, y, before, style);
-        x += @intCast(before.len);
-    }
-    buf.setString(x, y, cursor_char, if (cursor_visible) cursor_style else style);
-    x += @intCast(cursor_char.len);
-    if (after.len > 0) {
-        buf.setString(x, y, after, style);
-    }
+    var segments: [4]vaxis.Segment = .{
+        .{ .text = prefix, .style = style },
+        .{ .text = before, .style = style },
+        .{ .text = cursor_char, .style = if (cursor_visible) cursor_style else style },
+        .{ .text = after, .style = style },
+    };
+    _ = win.print(segments[0..], .{ .row_offset = row, .wrap = .none });
 }

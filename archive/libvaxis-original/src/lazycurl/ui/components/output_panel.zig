@@ -1,22 +1,21 @@
 const std = @import("std");
-const zithril = @import("zithril");
+const vaxis = @import("vaxis");
 const app_mod = @import("lazycurl_app");
 const theme_mod = @import("../theme.zig");
 const boxed = @import("lib/boxed.zig");
 
 pub fn render(
     allocator: std.mem.Allocator,
-    area: zithril.Rect,
-    buf: *zithril.Buffer,
+    win: vaxis.Window,
     app: *app_mod.App,
     runtime: *app_mod.Runtime,
     theme: theme_mod.Theme,
 ) void {
     app.ui.output_rect = .{
-        .x = area.x,
-        .y = area.y,
-        .width = area.width,
-        .height = area.height,
+        .x = win.x_off,
+        .y = win.y_off,
+        .width = win.width,
+        .height = win.height,
     };
     app.ui.output_copy_rect = null;
     app.ui.output_format_rect = null;
@@ -44,8 +43,7 @@ pub fn render(
     }
     const inner = boxed.beginWithBottomLabelRightLabels(
         allocator,
-        area,
-        buf,
+        win,
         "Output",
         right_labels_buf[0..right_count],
         copy_label,
@@ -53,11 +51,11 @@ pub fn render(
         theme.title,
         copy_style,
     );
-    app.ui.output_copy_rect = bottomLabelRect(area, copy_label);
+    app.ui.output_copy_rect = bottomLabelRect(win, copy_label);
     const format_enabled = stdout_text.len > 0;
     const format_style = if (format_enabled) theme.accent else theme.muted;
     app.ui.output_format_rect = if (format_enabled)
-        formatLabelRect(area, buf, copy_label, "[JSON]", format_style, theme.border)
+        formatLabelRect(win, copy_label, "[JSON]", format_style, theme.border)
     else
         null;
 
@@ -70,7 +68,6 @@ pub fn render(
 
         _ = drawOutputBody(
             inner,
-            buf,
             body_start,
             body_height,
             stdout_text,
@@ -101,71 +98,73 @@ fn runtimeOutput(runtime: *app_mod.Runtime, kind: OutputKind) []const u8 {
     return "";
 }
 
-fn bottomLabelRect(area: zithril.Rect, label: []const u8) ?app_mod.PanelRect {
-    if (label.len == 0 or area.width == 0 or area.height == 0) return null;
-    const padded = label.len + 4 < area.width;
+fn bottomLabelRect(win: vaxis.Window, label: []const u8) ?app_mod.PanelRect {
+    if (label.len == 0 or win.width == 0 or win.height == 0) return null;
+    const padded = label.len + 4 < win.width;
     const label_width: u16 = @intCast(if (padded) label.len + 2 else label.len);
-    if (1 + label_width >= area.width) return null;
-    const row: u16 = area.height - 1;
+    if (1 + label_width >= win.width) return null;
+    const row: u16 = win.height - 1;
     return .{
-        .x = area.x + 1,
-        .y = area.y + @as(i17, @intCast(row)),
+        .x = win.x_off + 1,
+        .y = win.y_off + @as(i17, @intCast(row)),
         .width = label_width,
         .height = 1,
     };
 }
 
 fn formatLabelRect(
-    area: zithril.Rect,
-    buf: *zithril.Buffer,
+    win: vaxis.Window,
     left_label: []const u8,
     label: []const u8,
-    text_style: zithril.Style,
-    border_style: zithril.Style,
+    text_style: vaxis.Style,
+    border_style: vaxis.Style,
 ) ?app_mod.PanelRect {
-    if (label.len == 0 or area.width == 0 or area.height == 0) return null;
-    const padded_left = left_label.len + 4 < area.width;
+    if (label.len == 0 or win.width == 0 or win.height == 0) return null;
+    const padded_left = left_label.len + 4 < win.width;
     const left_width: u16 = @intCast(if (padded_left) left_label.len + 2 else left_label.len);
-    if (left_width == 0 or 1 + left_width >= area.width) return null;
+    if (left_width == 0 or 1 + left_width >= win.width) return null;
     const start_col: u16 = 1 + left_width + 1;
-    if (start_col >= area.width) return null;
-    const padded = label.len + 4 < area.width;
+    if (start_col >= win.width) return null;
+    const padded = label.len + 4 < win.width;
     const label_width: u16 = @intCast(if (padded) label.len + 2 else label.len);
     if (label_width == 0) return null;
-    if (start_col + label_width >= area.width) return null;
-    drawBottomLabel(area, buf, start_col, label, text_style, border_style, padded);
-    const row: u16 = area.height - 1;
+    if (start_col + label_width >= win.width) return null;
+    drawBottomLabel(win, start_col, label, text_style, border_style, padded);
+    const row: u16 = win.height - 1;
     return .{
-        .x = area.x + @as(i17, @intCast(start_col)),
-        .y = area.y + @as(i17, @intCast(row)),
+        .x = win.x_off + @as(i17, @intCast(start_col)),
+        .y = win.y_off + @as(i17, @intCast(row)),
         .width = label_width,
         .height = 1,
     };
 }
 
 fn drawBottomLabel(
-    area: zithril.Rect,
-    buf: *zithril.Buffer,
+    win: vaxis.Window,
     col: u16,
     text: []const u8,
-    text_style: zithril.Style,
-    border_style: zithril.Style,
+    text_style: vaxis.Style,
+    border_style: vaxis.Style,
     padded: bool,
 ) void {
-    if (text.len == 0 or col >= area.width or area.height == 0) return;
-    const row: u16 = area.height - 1;
-    const x = area.x + col;
-    const y = area.y + row;
+    if (text.len == 0 or col >= win.width or win.height == 0) return;
+    const row: u16 = win.height - 1;
     if (padded) {
-        buf.setString(x, y, " ", border_style);
-        buf.setString(x + 1, y, text, text_style);
-        buf.setString(x + 1 + @as(u16, @intCast(text.len)), y, " ", border_style);
+        const segments = [_]vaxis.Segment{
+            .{ .text = " ", .style = border_style },
+            .{ .text = text, .style = text_style },
+            .{ .text = " ", .style = border_style },
+        };
+        _ = win.print(segments[0..], .{ .row_offset = row, .col_offset = col, .wrap = .none });
         return;
     }
-    buf.setString(x, y, text, text_style);
+    const segments = [_]vaxis.Segment{
+        .{ .text = text, .style = text_style },
+    };
+    _ = win.print(segments[0..], .{ .row_offset = row, .col_offset = col, .wrap = .none });
 }
 
-fn copyLabelStyle(runtime: *app_mod.Runtime, app: *app_mod.App, theme: theme_mod.Theme) zithril.Style {
+fn copyLabelStyle(runtime: *app_mod.Runtime, app: *app_mod.App, theme: theme_mod.Theme) vaxis.Style {
     const now_ms = std.time.milliTimestamp();
     const copied = now_ms <= app.ui.output_copy_until_ms;
     const has_output = runtime.outputBody().len > 0;
@@ -191,28 +190,28 @@ fn parseStatusMarkerLine(line: []const u8) ?u16 {
     return std.fmt.parseInt(u16, rest[0..idx], 10) catch null;
 }
 
-fn httpStatusLabelFromCode(code: ?u16, scratch: []u8) []const u8 {
+fn httpStatusLabelFromCode(code: ?u16, buf: []u8) []const u8 {
     if (code) |value| {
-        return std.fmt.bufPrint(scratch, "HTTP {d}", .{value}) catch "";
+        return std.fmt.bufPrint(buf, "HTTP {d}", .{value}) catch "";
     }
     return "";
 }
 
-fn statusBorderLabel(runtime: *app_mod.Runtime, code: ?u16, scratch: []u8) []const u8 {
-    if (code != null) return httpStatusLabelFromCode(code, scratch);
+fn statusBorderLabel(runtime: *app_mod.Runtime, code: ?u16, buf: []u8) []const u8 {
+    if (code != null) return httpStatusLabelFromCode(code, buf);
     if (runtime.active_job != null) return "Status: running";
     if (runtime.last_result != null) return "Status: complete";
     return "";
 }
 
-fn timeBorderLabel(runtime: *app_mod.Runtime, scratch: []u8) []const u8 {
+fn timeBorderLabel(runtime: *app_mod.Runtime, buf: []u8) []const u8 {
     if (runtime.active_job != null) return "";
     const result = runtime.last_result orelse return "";
     const duration_ms = result.duration_ns / std.time.ns_per_ms;
-    return std.fmt.bufPrint(scratch, "Time: {d} ms", .{duration_ms}) catch "";
+    return std.fmt.bufPrint(buf, "Time: {d} ms", .{duration_ms}) catch "";
 }
 
-fn httpStatusStyleFromCode(code: ?u16, theme: theme_mod.Theme, active: bool) zithril.Style {
+fn httpStatusStyleFromCode(code: ?u16, theme: theme_mod.Theme, active: bool) vaxis.Style {
     if (active) return theme.accent;
     if (code) |value| return statusStyleForCode(value, theme);
     return theme.muted;
@@ -249,7 +248,7 @@ fn parseHttpStatusLine(line: []const u8) ?ParsedHttpStatus {
     return .{ .code = code, .reason = reason };
 }
 
-fn statusStyleForCode(code: u16, theme: theme_mod.Theme) zithril.Style {
+fn statusStyleForCode(code: u16, theme: theme_mod.Theme) vaxis.Style {
     return switch (code / 100) {
         2 => theme.success,
         4 => theme.warning,
@@ -271,8 +270,7 @@ fn countLines(text: []const u8) usize {
 }
 
 fn drawOutputBody(
-    area: zithril.Rect,
-    buf: *zithril.Buffer,
+    win: vaxis.Window,
     start_row: u16,
     height: u16,
     stdout_text: []const u8,
@@ -284,19 +282,18 @@ fn drawOutputBody(
     var skip = scroll;
     const max_row = start_row + height;
 
-    row = drawSection(area, buf, row, max_row, null, theme.muted, stdout_text, theme.text, &skip, content_width);
+    row = drawSection(win, row, max_row, null, theme.muted, stdout_text, theme.text, &skip, content_width);
     return row;
 }
 
 fn drawSection(
-    area: zithril.Rect,
-    buf: *zithril.Buffer,
+    win: vaxis.Window,
     start_row: u16,
     max_row: u16,
     label: ?[]const u8,
-    label_style: zithril.Style,
+    label_style: vaxis.Style,
     text: []const u8,
-    text_style: zithril.Style,
+    text_style: vaxis.Style,
     skip: *usize,
     content_width: u16,
 ) u16 {
@@ -305,7 +302,7 @@ fn drawSection(
 
     if (label) |actual| {
         if (skip.* == 0) {
-            drawLineClipped(area, buf, row, actual, label_style, content_width);
+            drawLineClipped(win, row, actual, label_style, content_width);
             row += 1;
         } else {
             skip.* -= 1;
@@ -321,20 +318,21 @@ fn drawSection(
             skip.* -= 1;
             continue;
         }
-        drawLineClipped(area, buf, row, line, text_style, content_width);
+        drawLineClipped(win, row, line, text_style, content_width);
         row += 1;
     }
     return row;
 }
 
-fn drawLine(area: zithril.Rect, buf: *zithril.Buffer, row: u16, text: []const u8, style: zithril.Style) void {
-    if (row >= area.height) return;
-    buf.setString(area.x, area.y + row, text, style);
+fn drawLine(win: vaxis.Window, row: u16, text: []const u8, style: vaxis.Style) void {
+    if (row >= win.height) return;
+    const segments = [_]vaxis.Segment{.{ .text = text, .style = style }};
+    _ = win.print(&segments, .{ .row_offset = row, .wrap = .none });
 }
 
-fn drawLineClipped(area: zithril.Rect, buf: *zithril.Buffer, row: u16, text: []const u8, style: zithril.Style, max_width: u16) void {
+fn drawLineClipped(win: vaxis.Window, row: u16, text: []const u8, style: vaxis.Style, max_width: u16) void {
     if (max_width == 0) return;
     const limit: usize = @intCast(max_width);
     const slice = if (text.len > limit) text[0..limit] else text;
-    drawLine(area, buf, row, slice, style);
+    drawLine(win, row, slice, style);
 }

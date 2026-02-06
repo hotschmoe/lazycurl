@@ -1,6 +1,6 @@
 const std = @import("std");
 const core = @import("lazycurl_core");
-const zithril = @import("zithril");
+const vaxis = @import("vaxis");
 const execution = @import("lazycurl_execution");
 const persistence = @import("lazycurl_persistence");
 const command_builder = @import("lazycurl_command");
@@ -2925,6 +2925,6 @@ pub fn run(allocator: std.mem.Allocator) !void {
         .{summary},
     );
 
-    // Placeholder use to ensure the zithril dependency is wired up.
-    _ = zithril;
+    // Placeholder use to ensure the libvaxis dependency is wired up.
+    _ = vaxis;
 }
