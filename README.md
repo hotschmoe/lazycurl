@@ -1,8 +1,10 @@
-# lazycurl - Terminal Visual Curl
+# lazycurl - Terminal Visual Curl (zithril fork)
 
 ⚠️ This is pre-alpha and still in progress! ⚠️
 
 ![UI](.github/images/main_ui.png)
+
+This is a fork of [lazycurl](https://github.com/BowTiedCrocodile/lazycurl) used as a real-world testbed for [zithril](https://github.com/hotschmoe/zithril) **v0.10.0**, our Zig TUI framework. The goal is to replace libvaxis with zithril and rebuild the same terminal UI to compare visuals and performance between the two frameworks. Issues discovered in zithril during this migration are tracked at [hotschmoe/zithril/issues](https://github.com/hotschmoe/zithril/issues).
 
 lazycurl (Terminal Visual Curl) is a terminal-based UI application that provides a visual interface for building curl commands. Unlike Postman or Insomnia which abstract away the underlying HTTP requests, lazycurl focuses on making curl itself more accessible through visual aids while preserving the power and flexibility of the curl command line tool.
 
@@ -20,17 +22,17 @@ lazycurl (Terminal Visual Curl) is a terminal-based UI application that provides
 
 ### Prerequisites
 
-- Zig 0.15.1 (libvaxis main)
+- Zig 0.15.1
 - curl installed on your system
 
 ### Zig Build
 
 1. Clone the repository:
    ```
-   git clone git@github.com:BowTiedCrocodile/lazycurl.git
+   git clone git@github.com:hotschmoe/lazycurl.git
    cd lazycurl
    ```
-2. Fetch third-party Zig dependencies (libvaxis main):
+2. Fetch third-party Zig dependencies:
    ```
    zig build --fetch
    ```
@@ -53,7 +55,7 @@ For development, you can use the included helper script to run common Zig tasks:
 # Format Zig sources
 ./dev.sh fmt
 
-# (Re)fetch dependencies such as libvaxis
+# (Re)fetch dependencies
 ./dev.sh fetch
 ```
 
@@ -131,7 +133,7 @@ Templates panel (focused)
 
 lazycurl follows a modular architecture with clear separation between:
 
-1. **User Interface Layer**: Built with libvaxis in Zig
+1. **User Interface Layer**: Being migrated from libvaxis to [zithril](https://github.com/hotschmoe/zithril)
 2. **Command Builder Layer**: Generates curl commands based on user input
 3. **Command Execution Layer**: Executes curl commands and captures output
 4. **Data Persistence Layer**: Manages storage of templates and environments
