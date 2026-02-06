@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a fork of [lazycurl](https://github.com/BowTiedCrocodile/lazycurl) used as a real-world testbed for [zithril](https://github.com/hotschmoe/zithril), our Zig TUI framework. The goal is to replace libvaxis with zithril and rebuild the same terminal UI to compare visuals and performance between the two frameworks.
+This is a fork of [lazycurl](https://github.com/BowTiedCrocodile/lazycurl) (original work by BowTiedCrocodile) that we use as a real-world testbed for [zithril](https://github.com/hotschmoe/zithril), our Zig TUI framework. We're using this project to help mature zithril and find issues in the framework. Issues discovered during this effort are tracked at [hotschmoe/zithril/issues](https://github.com/hotschmoe/zithril/issues).
 
 lazycurl is a terminal-based UI application (written in Zig) for building and executing curl commands visually. It shells out to the system `curl` binary. Data (templates, environments, history) is persisted to `~/.config/lazycurl/`.
 
@@ -20,9 +20,9 @@ The upstream lazycurl uses libvaxis for terminal rendering. This fork is migrati
 - **zithril** event loop: Event → Update → View → Render
 - Built-in widgets: Text, Paragraph, Block, List, Table, Gauge, Tabs, Scrollbar
 
-This fork pins **zithril v0.10.0**. When working on this codebase: **use zithril APIs, do not introduce new libvaxis dependencies.** The libvaxis import in `build.zig.zon` will be replaced with zithril as the migration progresses.
+When working on this codebase: **use zithril APIs, do not introduce new libvaxis dependencies.**
 
-When you encounter missing features, bugs, or API gaps in zithril during the migration, open an issue at https://github.com/hotschmoe/zithril so the framework can mature alongside this effort.
+When you encounter missing features, bugs, or API gaps in zithril during the migration, open an issue at https://github.com/hotschmoe/zithril/issues so the framework can mature alongside this effort.
 
 Files most affected by the migration: `src/main.zig` (event loop), `src/lazycurl/app.zig` (vaxis event types), and everything under `src/lazycurl/ui/` (all rendering code).
 
