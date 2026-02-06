@@ -1,4 +1,3 @@
-const std = @import("std");
 const zithril = @import("zithril");
 
 fn renderBorder(area: zithril.Rect, buf: *zithril.Buffer, style: zithril.Style) void {
@@ -129,7 +128,6 @@ fn drawRightLabels(
 }
 
 pub fn begin(
-    _: std.mem.Allocator,
     area: zithril.Rect,
     buf: *zithril.Buffer,
     title: []const u8,
@@ -167,7 +165,6 @@ pub fn begin(
 }
 
 pub fn beginWithBottomLabel(
-    _: std.mem.Allocator,
     area: zithril.Rect,
     buf: *zithril.Buffer,
     title: []const u8,
@@ -213,7 +210,6 @@ pub fn beginWithBottomLabel(
 }
 
 pub fn beginWithBottomLabelRightLabels(
-    _: std.mem.Allocator,
     area: zithril.Rect,
     buf: *zithril.Buffer,
     title: []const u8,

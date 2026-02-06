@@ -2,6 +2,7 @@ const std = @import("std");
 const zithril = @import("zithril");
 const app_mod = @import("lazycurl_app");
 const theme_mod = @import("../theme.zig");
+const draw = @import("lib/draw.zig");
 
 pub fn render(
     allocator: std.mem.Allocator,
@@ -11,7 +12,7 @@ pub fn render(
     theme: theme_mod.Theme,
 ) void {
     if (app.current_command.options.items.len == 0) {
-        drawLine(area, buf, 0, "No options", theme.muted);
+        draw.line(area, buf, 0, "No options", theme.muted);
         return;
     }
 
@@ -21,77 +22,21 @@ pub fn render(
         const enabled = if (option.enabled) "[x]" else "[ ]";
         const is_selected = isOptionSelected(app, idx);
         const is_editing = app.state == .editing and app.editing_field != null and app.editing_field.? == .option_value and is_selected;
-        var style = if (is_selected) theme.accent else theme.text;
-        if (is_selected) style = style.reverse();
+        const style = if (is_selected) theme.accent.reverse() else theme.text;
 
         if (is_editing) {
             const prefix = std.fmt.allocPrint(allocator, "{s} {s} ", .{ enabled, option.flag }) catch return;
             const cursor_style = style.notReverse();
-            drawInputWithCursor(area, buf, row, app.ui.edit_input.slice(), app.ui.edit_input.cursor, style, cursor_style, app.ui.cursor_visible, prefix);
+            draw.inputWithCursor(area, buf, row, app.ui.edit_input.slice(), app.ui.edit_input.cursor, style, cursor_style, app.ui.cursor_visible, prefix);
         } else {
             const line = if (option.value) |value|
                 std.fmt.allocPrint(allocator, "{s} {s} {s}", .{ enabled, option.flag, value }) catch return
             else
                 std.fmt.allocPrint(allocator, "{s} {s}", .{ enabled, option.flag }) catch return;
 
-            drawLine(area, buf, row, line, style);
+            draw.line(area, buf, row, line, style);
         }
         row += 1;
-    }
-}
-
-fn drawLine(area: zithril.Rect, buf: *zithril.Buffer, row: u16, text: []const u8, style: zithril.Style) void {
-    if (row >= area.height) return;
-    buf.setString(area.x, area.y + row, text, style);
-}
-
-fn drawInputWithCursor(
-    area: zithril.Rect,
-    buf: *zithril.Buffer,
-    row: u16,
-    value: []const u8,
-    cursor: usize,
-    style: zithril.Style,
-    cursor_style: zithril.Style,
-    cursor_visible: bool,
-    prefix: []const u8,
-) void {
-    if (row >= area.height) return;
-    const prefix_len: usize = prefix.len;
-    const win_width: usize = area.width;
-    const y = area.y + row;
-    if (win_width <= prefix_len) {
-        const clipped = prefix[0..@min(prefix_len, win_width)];
-        buf.setString(area.x, y, clipped, style);
-        return;
-    }
-
-    const available = win_width - prefix_len;
-    const safe_cursor = @min(cursor, value.len);
-    var start: usize = 0;
-    if (safe_cursor >= available) {
-        start = safe_cursor - available + 1;
-    }
-    const end = @min(value.len, start + available);
-    const visible = value[start..end];
-    const cursor_pos = safe_cursor - start;
-    const before = visible[0..@min(cursor_pos, visible.len)];
-    const cursor_char = if (cursor_pos < visible.len) visible[cursor_pos .. cursor_pos + 1] else " ";
-    const after = if (cursor_pos < visible.len) visible[cursor_pos + 1 ..] else "";
-
-    var x: u16 = area.x;
-    if (prefix.len > 0) {
-        buf.setString(x, y, prefix, style);
-        x += @intCast(prefix.len);
-    }
-    if (before.len > 0) {
-        buf.setString(x, y, before, style);
-        x += @intCast(before.len);
-    }
-    buf.setString(x, y, cursor_char, if (cursor_visible) cursor_style else style);
-    x += @intCast(cursor_char.len);
-    if (after.len > 0) {
-        buf.setString(x, y, after, style);
     }
 }
 

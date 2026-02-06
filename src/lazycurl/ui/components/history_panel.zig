@@ -3,6 +3,7 @@ const zithril = @import("zithril");
 const app_mod = @import("lazycurl_app");
 const theme_mod = @import("../theme.zig");
 const boxed = @import("lib/boxed.zig");
+const draw = @import("lib/draw.zig");
 
 const TimestampMode = enum {
     full,
@@ -19,16 +20,15 @@ pub fn render(
 ) void {
     if (area.height == 0) return;
     const focused = app.ui.left_panel != null and app.ui.left_panel.? == .history;
-    var header_style = if (focused) theme.accent else theme.title;
-    if (focused) header_style = header_style.reverse();
+    const header_style = if (focused) theme.accent.reverse() else theme.title;
     const title = std.fmt.allocPrint(allocator, "History ({d})", .{app.history.items.len}) catch return;
     const border_style = if (focused) theme.accent else theme.border;
-    const inner = boxed.begin(allocator, area, buf, title, "", border_style, header_style, theme.muted);
+    const inner = boxed.begin(area, buf, title, "", border_style, header_style, theme.muted);
 
     if (!app.ui.history_expanded) return;
 
     const available = inner.height;
-    ensureScroll(&app.ui.history_scroll, app.ui.selected_history, app.history.items.len, available);
+    draw.ensureScroll(&app.ui.history_scroll, app.ui.selected_history, app.history.items.len, available);
 
     var row: u16 = 0;
     var idx: usize = app.ui.history_scroll;
@@ -37,35 +37,17 @@ pub fn render(
     while (idx < app.history.items.len and row < inner.height and rendered < available) : (idx += 1) {
         const command = app.history.items[idx];
         const selected = app.ui.selected_history != null and app.ui.selected_history.? == idx;
-        var style = if (selected and focused) theme.accent else theme.text;
-        if (selected and focused) style = style.reverse();
+        const style = if (selected and focused) theme.accent.reverse() else theme.text;
         const prefix = if (selected) ">" else " ";
         const label = historyLabel(allocator, command) catch return;
         const timestamp = formatTimestamp(allocator, command.updated_at, timestamp_mode) catch return;
         const max_label = maxLabelWidth(inner.width, timestamp.len);
         const label_trimmed = if (label.len > max_label) label[0..max_label] else label;
         const line = std.fmt.allocPrint(allocator, " {s} {s} {s}", .{ prefix, timestamp, label_trimmed }) catch return;
-        drawLine(inner, buf, row, line, style);
+        draw.line(inner, buf, row, line, style);
         row += 1;
         rendered += 1;
     }
-}
-
-fn drawLine(area: zithril.Rect, buf: *zithril.Buffer, row: u16, text: []const u8, style: zithril.Style) void {
-    if (row >= area.height) return;
-    buf.setString(area.x, area.y + row, text, style);
-}
-
-fn ensureScroll(scroll: *usize, selection: ?usize, total: usize, view: usize) void {
-    if (total == 0 or view == 0) {
-        scroll.* = 0;
-        return;
-    }
-    const idx = selection orelse return;
-    if (idx < scroll.*) scroll.* = idx;
-    if (idx >= scroll.* + view) scroll.* = idx - view + 1;
-    const max_scroll = if (total > view) total - view else 0;
-    if (scroll.* > max_scroll) scroll.* = max_scroll;
 }
 
 fn historyLabel(allocator: std.mem.Allocator, command: anytype) ![]const u8 {

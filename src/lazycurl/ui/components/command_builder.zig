@@ -3,6 +3,7 @@ const zithril = @import("zithril");
 const app_mod = @import("lazycurl_app");
 const theme_mod = @import("../theme.zig");
 const boxed = @import("lib/boxed.zig");
+const draw = @import("lib/draw.zig");
 
 pub fn render(
     allocator: std.mem.Allocator,
@@ -13,7 +14,7 @@ pub fn render(
 ) void {
     const method_selected = isMethodSelected(app) or app.state == .method_dropdown;
     const border_style = if (method_selected) theme.accent else theme.border;
-    const inner = boxed.begin(allocator, area, buf, "Method", "", border_style, theme.title, theme.muted);
+    const inner = boxed.begin(area, buf, "Method", "", border_style, theme.title, theme.muted);
     renderMethodList(allocator, inner, buf, app, theme);
 }
 
@@ -36,7 +37,7 @@ fn renderMethodList(
     var row: u16 = 0;
     for (methods, 0..) |method, idx| {
         if (row >= area.height) break;
-        const is_current = methodMatches(method, current.asString());
+        const is_current = std.mem.eql(u8, method, current.asString());
         const selected = idx == selected_index;
         var style = if (is_current) theme.accent else theme.text;
         if (focused and selected) style = style.reverse();
@@ -44,19 +45,14 @@ fn renderMethodList(
         const marker = if (selected) ">" else " ";
         const current_marker = if (is_current and !selected) "*" else " ";
         const line = std.fmt.allocPrint(allocator, "{s}{s} {s}", .{ marker, current_marker, method }) catch return;
-        drawLine(area, buf, row, line, style);
+        draw.line(area, buf, row, line, style);
         row += 1;
     }
 
     if (row < area.height) {
         const hint = if (is_editing) "Enter to select" else "Enter to change";
-        drawLine(area, buf, row, hint, theme.muted);
+        draw.line(area, buf, row, hint, theme.muted);
     }
-}
-
-fn drawLine(area: zithril.Rect, buf: *zithril.Buffer, row: u16, text: []const u8, style: zithril.Style) void {
-    if (row >= area.height) return;
-    buf.setString(area.x, area.y + row, text, style);
 }
 
 fn isMethodSelected(app: *app_mod.App) bool {
@@ -79,10 +75,6 @@ fn methodLabels() []const []const u8 {
         "TRACE",
         "CONNECT",
     };
-}
-
-fn methodMatches(label: []const u8, current: []const u8) bool {
-    return std.mem.eql(u8, label, current);
 }
 
 fn findMethodIndex(methods: []const []const u8, current: []const u8) usize {

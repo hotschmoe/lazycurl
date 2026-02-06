@@ -3,6 +3,7 @@ const zithril = @import("zithril");
 const app_mod = @import("lazycurl_app");
 const theme_mod = @import("../theme.zig");
 const boxed = @import("lib/boxed.zig");
+const draw = @import("lib/draw.zig");
 
 pub fn render(
     allocator: std.mem.Allocator,
@@ -13,11 +14,10 @@ pub fn render(
 ) void {
     if (area.height == 0) return;
     const focused = app.ui.left_panel != null and app.ui.left_panel.? == .templates;
-    var header_style = if (focused) theme.accent else theme.title;
-    if (focused) header_style = header_style.reverse();
+    const header_style = if (focused) theme.accent.reverse() else theme.title;
     const title = std.fmt.allocPrint(allocator, "Templates ({d})", .{app.templates.items.len}) catch return;
     const border_style = if (focused) theme.accent else theme.border;
-    const inner = boxed.begin(allocator, area, buf, title, "", border_style, header_style, theme.muted);
+    const inner = boxed.begin(area, buf, title, "", border_style, header_style, theme.muted);
 
     if (!app.ui.templates_expanded) return;
 
@@ -25,11 +25,6 @@ pub fn render(
     const columns = columnLayout(inner.width);
     drawColumnsHeader(allocator, inner, buf, 0, columns, theme);
     _ = renderTemplateList(allocator, inner, buf, 1, app, theme, available, columns);
-}
-
-fn drawLine(area: zithril.Rect, buf: *zithril.Buffer, row: u16, text: []const u8, style: zithril.Style) void {
-    if (row >= area.height) return;
-    buf.setString(area.x, area.y + row, text, style);
 }
 
 const Columns = struct {
@@ -99,7 +94,7 @@ fn renderTemplateList(
 ) u16 {
     if (start_row >= area.height) return start_row;
     if (app.templates.items.len == 0) {
-        drawLine(area, buf, start_row, "  (none)", theme.muted);
+        draw.line(area, buf, start_row, "  (none)", theme.muted);
         return start_row + 1;
     }
 
@@ -108,7 +103,7 @@ fn renderTemplateList(
     var rows = app.buildTemplateRows(allocator) catch return row;
     defer rows.deinit(allocator);
 
-    ensureRowScroll(&app.ui.templates_scroll, app.ui.selected_template_row, rows.items.len, max_rows);
+    draw.ensureScroll(&app.ui.templates_scroll, app.ui.selected_template_row, rows.items.len, max_rows);
 
     const scroll = app.ui.templates_scroll;
     var list_row: usize = 0;
@@ -118,14 +113,13 @@ fn renderTemplateList(
         if (list_row >= scroll and rendered < max_rows and row < area.height) {
             const selected = app.ui.selected_template_row != null and app.ui.selected_template_row.? == list_row;
             if (item.kind == .folder) {
-                var style = if (selected and focus) theme.accent else theme.title;
-                if (selected and focus) style = style.reverse();
+                const style = if (selected and focus) theme.accent.reverse() else theme.title;
                 const marker = if (item.collapsed) "[+]" else "[-]";
                 const is_editing_folder = app.state == .editing and app.editing_field != null and app.editing_field.? == .template_folder;
                 if (selected and is_editing_folder) {
                     const cursor_style = style.notReverse();
                     const prefix = std.fmt.allocPrint(allocator, "{s} ", .{marker}) catch return row;
-                    drawInputWithCursor(
+                    draw.inputWithCursor(
                         area,
                         buf,
                         row,
@@ -138,12 +132,12 @@ fn renderTemplateList(
                     );
                 } else {
                     const line = std.fmt.allocPrint(allocator, "{s} {s}", .{ marker, item.category }) catch return row;
-                    drawLine(area, buf, row, line, style);
+                    draw.line(area, buf, row, line, style);
                 }
             } else if (item.template_index) |idx| {
                 const template = app.templates.items[idx];
                 const method = template.command.method orelse .get;
-                const method_label = methodLabel(method);
+                const method_label = method.asString();
                 const url_label = template.command.url;
                 const name_label = template.name;
                 const is_editing = app.state == .editing and app.editing_field != null and app.editing_field.? == .template_name and selected and app.ui.editing_template_index == idx;
@@ -154,7 +148,7 @@ fn renderTemplateList(
                         padOrTrim(allocator, truncate(allocator, url_label, columns.url_w), columns.url_w),
                     }) catch return row;
                     const cursor_style = theme.accent.notReverse();
-                    drawInputWithCursor(
+                    draw.inputWithCursor(
                         area,
                         buf,
                         row,
@@ -189,23 +183,11 @@ fn renderTemplateList(
     return row;
 }
 
-fn ensureRowScroll(scroll: *usize, selection: ?usize, total: usize, view: usize) void {
-    if (total == 0 or view == 0) {
-        scroll.* = 0;
-        return;
-    }
-    const idx = selection orelse return;
-    if (idx < scroll.*) scroll.* = idx;
-    if (idx >= scroll.* + view) scroll.* = idx - view + 1;
-    const max_scroll = if (total > view) total - view else 0;
-    if (scroll.* > max_scroll) scroll.* = max_scroll;
-}
-
 fn truncate(allocator: std.mem.Allocator, value: []const u8, width: usize) []const u8 {
     if (width == 0) return "";
     if (value.len <= width) return value;
     if (width <= 3) return value[0..width];
-    return std.fmt.allocPrint(allocator, "{s}...", .{value[0..width - 3]}) catch "";
+    return std.fmt.allocPrint(allocator, "{s}...", .{value[0 .. width - 3]}) catch "";
 }
 
 fn padOrTrim(allocator: std.mem.Allocator, value: []const u8, width: usize) []const u8 {
@@ -216,10 +198,6 @@ fn padOrTrim(allocator: std.mem.Allocator, value: []const u8, width: usize) []co
     @memcpy(buffer[0..value.len], value);
     @memset(buffer[value.len..], ' ');
     return buffer;
-}
-
-fn methodLabel(method: anytype) []const u8 {
-    return method.asString();
 }
 
 fn drawTemplateRow(
@@ -269,54 +247,4 @@ fn drawTemplateRow(
     buf.setString(x, y, sep, sep_style);
     x += @intCast(sep.len);
     buf.setString(x, y, name_text, name_style);
-}
-
-fn drawInputWithCursor(
-    area: zithril.Rect,
-    buf: *zithril.Buffer,
-    row: u16,
-    value: []const u8,
-    cursor: usize,
-    style: zithril.Style,
-    cursor_style: zithril.Style,
-    cursor_visible: bool,
-    prefix: []const u8,
-) void {
-    if (row >= area.height) return;
-    const prefix_len: usize = prefix.len;
-    const win_width: usize = area.width;
-    const y = area.y + row;
-    if (win_width <= prefix_len) {
-        const clipped = prefix[0..@min(prefix_len, win_width)];
-        buf.setString(area.x, y, clipped, style);
-        return;
-    }
-
-    const available = win_width - prefix_len;
-    const safe_cursor = @min(cursor, value.len);
-    var start: usize = 0;
-    if (safe_cursor >= available) {
-        start = safe_cursor - available + 1;
-    }
-    const end = @min(value.len, start + available);
-    const visible = value[start..end];
-    const cursor_pos = safe_cursor - start;
-    const before = visible[0..@min(cursor_pos, visible.len)];
-    const cursor_char = if (cursor_pos < visible.len) visible[cursor_pos .. cursor_pos + 1] else " ";
-    const after = if (cursor_pos < visible.len) visible[cursor_pos + 1 ..] else "";
-
-    var x: u16 = area.x;
-    if (prefix.len > 0) {
-        buf.setString(x, y, prefix, style);
-        x += @intCast(prefix.len);
-    }
-    if (before.len > 0) {
-        buf.setString(x, y, before, style);
-        x += @intCast(before.len);
-    }
-    buf.setString(x, y, cursor_char, if (cursor_visible) cursor_style else style);
-    x += @intCast(cursor_char.len);
-    if (after.len > 0) {
-        buf.setString(x, y, after, style);
-    }
 }

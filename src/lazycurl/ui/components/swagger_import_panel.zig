@@ -14,7 +14,7 @@ pub fn render(
 ) void {
     if (area.width < 30 or area.height < 10) return;
 
-    const inner = floating_pane.begin(allocator, area, buf, .{
+    const inner = floating_pane.begin(area, buf, .{
         .title = "Import Swagger",
         .right_label = "Esc",
         .border_style = theme.border,
@@ -36,7 +36,7 @@ pub fn render(
         input_w,
         input_h,
     );
-    renderInputBox(allocator, input_container, buf, app, theme);
+    renderInputBox(input_container, buf, app, theme);
 
     const error_row: u16 = inner.height - 4;
     const folder_row: u16 = inner.height - 3;
@@ -58,10 +58,7 @@ fn drawSourceLine(area: zithril.Rect, buf: *zithril.Buffer, app: *app_mod.App, t
 
     const label_style = theme.muted;
     const option_style = theme.text;
-    var selected_style = theme.accent;
-    if (focus) {
-        selected_style = selected_style.reverse();
-    }
+    const selected_style = if (focus) theme.accent.reverse() else theme.accent;
 
     const paste_label = if (paste_selected) "[Paste JSON]" else " Paste JSON ";
     const file_label = if (file_selected) "[File Path]" else " File Path ";
@@ -82,7 +79,7 @@ fn drawSourceLine(area: zithril.Rect, buf: *zithril.Buffer, app: *app_mod.App, t
     buf.setString(x, y, url_label, if (url_selected) selected_style else option_style);
 }
 
-fn renderInputBox(allocator: std.mem.Allocator, area: zithril.Rect, buf: *zithril.Buffer, app: *app_mod.App, theme: theme_mod.Theme) void {
+fn renderInputBox(area: zithril.Rect, buf: *zithril.Buffer, app: *app_mod.App, theme: theme_mod.Theme) void {
     if (area.width < 6 or area.height < 3) return;
     const focused = app.ui.import_focus == .input;
     const title = switch (app.ui.import_source) {
@@ -90,13 +87,9 @@ fn renderInputBox(allocator: std.mem.Allocator, area: zithril.Rect, buf: *zithri
         .file => "File Path",
         .url => "Download URL",
     };
-    var border_style = theme.border;
-    var title_style = theme.title;
-    if (focused) {
-        border_style = theme.accent;
-        title_style = theme.accent;
-    }
-    const inner = boxed.begin(allocator, area, buf, title, "", border_style, title_style, theme.muted);
+    const border_style = if (focused) theme.accent else theme.border;
+    const title_style = if (focused) theme.accent else theme.title;
+    const inner = boxed.begin(area, buf, title, "", border_style, title_style, theme.muted);
     if (inner.height == 0 or inner.width == 0) return;
     buf.fill(inner, zithril.Cell.styled(' ', zithril.Style.empty));
     switch (app.ui.import_source) {
@@ -171,8 +164,7 @@ fn drawFolderLine(allocator: std.mem.Allocator, area: zithril.Rect, buf: *zithri
     if (row >= area.height) return;
     const focus = app.ui.import_focus == .folder;
     const label = folderLabel(app);
-    var value_style = theme.text;
-    if (focus) value_style = value_style.reverse();
+    const value_style = if (focus) theme.text.reverse() else theme.text;
     const line = std.fmt.allocPrint(allocator, "Folder: {s}  (use arrows)", .{label}) catch return;
     drawLineClipped(area, buf, row, line, value_style);
 }
@@ -219,8 +211,7 @@ fn drawActionsLine(area: zithril.Rect, buf: *zithril.Buffer, row: u16, app: *app
     const focus = app.ui.import_focus == .actions;
     const import_selected = app.ui.import_action_index == 0;
     const cancel_selected = app.ui.import_action_index == 1;
-    var selected_style = theme.accent;
-    if (focus) selected_style = selected_style.reverse();
+    const selected_style = if (focus) theme.accent.reverse() else theme.accent;
 
     const import_label = if (import_selected) "[Import]" else " Import ";
     const cancel_label = if (cancel_selected) "[Cancel]" else " Cancel ";
@@ -255,9 +246,7 @@ fn isNewFolderSelected(app: *app_mod.App) bool {
 }
 
 fn cursorStyle(theme: theme_mod.Theme, focused: bool) zithril.Style {
-    var style = if (focused) theme.accent else theme.text;
-    if (focused) style = style.reverse();
-    return style;
+    return if (focused) theme.accent.reverse() else theme.text;
 }
 
 fn drawLineClipped(area: zithril.Rect, buf: *zithril.Buffer, row: u16, text: []const u8, style: zithril.Style) void {

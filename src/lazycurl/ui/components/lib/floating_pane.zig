@@ -1,4 +1,3 @@
-const std = @import("std");
 const zithril = @import("zithril");
 const boxed = @import("boxed.zig");
 
@@ -15,7 +14,7 @@ pub const Options = struct {
     margin: u16 = 2,
 };
 
-pub fn begin(allocator: std.mem.Allocator, area: zithril.Rect, buf: *zithril.Buffer, options: Options) ?zithril.Rect {
+pub fn begin(area: zithril.Rect, buf: *zithril.Buffer, options: Options) ?zithril.Rect {
     if (area.width == 0 or area.height == 0) return null;
     const margin = options.margin;
     const modal_w: u16 = if (area.width > margin * 2 + 2)
@@ -42,7 +41,6 @@ pub fn begin(allocator: std.mem.Allocator, area: zithril.Rect, buf: *zithril.Buf
     buf.fill(modal_area, zithril.Cell.styled(' ', zithril.Style.empty));
 
     const inner = boxed.begin(
-        allocator,
         modal_area,
         buf,
         options.title,

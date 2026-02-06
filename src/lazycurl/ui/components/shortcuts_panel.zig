@@ -17,13 +17,10 @@ fn buildShortcutLine(allocator: std.mem.Allocator, app: *app_mod.App) ![]const u
 
 fn joinLines(allocator: std.mem.Allocator, lines: []const []const u8) ![]const u8 {
     if (lines.len == 0) return "";
-    var joined = try std.ArrayList(u8).initCapacity(allocator, 0);
-    try joined.ensureTotalCapacity(allocator, 64);
-    var idx: usize = 0;
-    for (lines) |entry| {
+    var joined = try std.ArrayList(u8).initCapacity(allocator, 64);
+    for (lines, 0..) |entry, idx| {
         if (idx > 0) try joined.appendSlice(allocator, " | ");
         try joined.appendSlice(allocator, entry);
-        idx += 1;
     }
     return joined.toOwnedSlice(allocator);
 }

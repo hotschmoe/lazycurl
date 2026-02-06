@@ -6,6 +6,7 @@ const theme_mod = @import("../theme.zig");
 const options_panel = @import("options_panel.zig");
 const boxed = @import("lib/boxed.zig");
 const key_value_control = @import("lib/key_value_control.zig");
+const draw = @import("lib/draw.zig");
 
 pub fn render(
     allocator: std.mem.Allocator,
@@ -32,12 +33,12 @@ pub fn render(
     if (url_h > 0) {
         const url_border = if (isUrlSelected(app) or isEditingUrl(app)) theme.accent else theme.border;
         const url_area = zithril.Rect.init(area.x, area.y, width, url_h);
-        renderUrlInput(allocator, url_area, buf, app, theme, url_border);
+        renderUrlInput(url_area, buf, app, theme, url_border);
     }
 
     if (tabs_h > 0) {
         const tabs_area = zithril.Rect.init(area.x, area.y + url_h, width, tabs_h);
-        const inner = boxed.begin(allocator, tabs_area, buf, "", "", theme.border, theme.title, theme.muted);
+        const inner = boxed.begin(tabs_area, buf, "", "", theme.border, theme.title, theme.muted);
         renderTabs(inner, buf, app, theme);
     }
 
@@ -53,32 +54,24 @@ pub fn render(
         };
         const right_label = if (app.ui.active_tab == .body) bodyTypeLabel(app) else "";
         const right_style = if (app.ui.active_tab == .body and isBodyTypeSelected(app)) theme.accent else theme.muted;
-        const inner = boxed.begin(allocator, content_area, buf, tab_title, right_label, border_style, theme.title, right_style);
+        const inner = boxed.begin(content_area, buf, tab_title, right_label, border_style, theme.title, right_style);
         renderTabContent(allocator, inner, buf, app, theme);
     }
 }
 
 fn renderUrlInput(
-    allocator: std.mem.Allocator,
     area: zithril.Rect,
     buf: *zithril.Buffer,
     app: *app_mod.App,
     theme: theme_mod.Theme,
     border_style: zithril.Style,
 ) void {
-    var title_style = theme.title;
     const is_editing = isEditingUrl(app);
-    if (is_editing) {
-        title_style = theme.accent;
-    }
-    const inner = boxed.begin(allocator, area, buf, "URL", "", border_style, title_style, theme.muted);
+    const title_style = if (is_editing) theme.accent else theme.title;
+    const inner = boxed.begin(area, buf, "URL", "", border_style, title_style, theme.muted);
 
     const is_selected = isUrlSelected(app);
-    var url_style = if (is_selected) theme.accent else theme.text;
-    if (is_editing) {
-        url_style = theme.accent;
-        url_style = url_style.reverse();
-    }
+    const url_style = if (is_editing) theme.accent.reverse() else if (is_selected) theme.accent else theme.text;
     if (is_editing) {
         const cursor_style = url_style.notReverse();
         key_value_control.drawInputWithCursorPrefix(
@@ -121,8 +114,7 @@ fn renderTabs(area: zithril.Rect, buf: *zithril.Buffer, app: *app_mod.App, theme
     var x: u16 = area.x;
     const y = area.y;
     for (tabs) |tab| {
-        var style = if (app.ui.active_tab == tab.tab) theme.accent else theme.text;
-        if (app.ui.active_tab == tab.tab) style = style.reverse();
+        const style = if (app.ui.active_tab == tab.tab) theme.accent.reverse() else theme.text;
         buf.setString(x, y, tab.label, style);
         x += @intCast(tab.label.len);
         buf.setString(x, y, " ", theme.muted);
@@ -159,8 +151,7 @@ fn renderQueryParams(
         const is_selected = isQueryParamSelected(app, idx);
         const is_editing = app.state == .editing and app.editing_field != null and is_selected and
             (app.editing_field.? == .query_param_value or app.editing_field.? == .query_param_key);
-        var style = if (is_selected) theme.accent else theme.text;
-        if (is_selected) style = style.reverse();
+        const style = if (is_selected) theme.accent.reverse() else theme.text;
         if (is_editing) {
             const cursor_style = style.notReverse();
             if (app.editing_field.? == .query_param_key) {
@@ -195,16 +186,15 @@ fn renderQueryParams(
             }
         } else {
             const line = std.fmt.allocPrint(allocator, "{s} {s}={s}", .{ enabled, param.key, param.value }) catch return;
-            drawLine(area, buf, row, line, style);
+            draw.line(area, buf, row, line, style);
         }
         row += 1;
     }
 
     if (row < area.height) {
         const ghost_selected = isQueryParamSelected(app, app.current_command.query_params.items.len);
-        var ghost_style = if (ghost_selected) theme.accent else theme.muted;
-        if (ghost_selected) ghost_style = ghost_style.reverse();
-        drawLine(area, buf, row, "[ ] New query param", ghost_style);
+        const ghost_style = if (ghost_selected) theme.accent.reverse() else theme.muted;
+        draw.line(area, buf, row, "[ ] New query param", ghost_style);
     }
 }
 
@@ -222,8 +212,7 @@ fn renderHeaders(
         const is_selected = isHeaderSelected(app, idx);
         const is_editing = app.state == .editing and app.editing_field != null and is_selected and
             (app.editing_field.? == .header_value or app.editing_field.? == .header_key);
-        var style = if (is_selected) theme.accent else theme.text;
-        if (is_selected) style = style.reverse();
+        const style = if (is_selected) theme.accent.reverse() else theme.text;
         if (is_editing) {
             const prefix = if (app.editing_field.? == .header_key)
                 std.fmt.allocPrint(allocator, "{s} ", .{enabled}) catch return
@@ -260,16 +249,15 @@ fn renderHeaders(
             }
         } else {
             const line = std.fmt.allocPrint(allocator, "{s} {s}: {s}", .{ enabled, header.key, header.value }) catch return;
-            drawLine(area, buf, row, line, style);
+            draw.line(area, buf, row, line, style);
         }
         row += 1;
     }
 
     if (row < area.height) {
         const ghost_selected = isHeaderSelected(app, app.current_command.headers.items.len);
-        var ghost_style = if (ghost_selected) theme.accent else theme.muted;
-        if (ghost_selected) ghost_style = ghost_style.reverse();
-        drawLine(area, buf, row, "[ ] New header", ghost_style);
+        const ghost_style = if (ghost_selected) theme.accent.reverse() else theme.muted;
+        draw.line(area, buf, row, "[ ] New header", ghost_style);
     }
 }
 
@@ -298,13 +286,12 @@ fn renderBody(
             theme,
             app.ui.cursor_visible,
             is_json,
-            app.ui.body_mode,
         );
         return;
     }
 
     switch (app.current_command.body orelse .none) {
-        .none => drawLine(area, buf, start_row, "No body", theme.muted),
+        .none => draw.line(area, buf, start_row, "No body", theme.muted),
         .raw => |payload| renderBodyLines(area, buf, start_row, payload, content_style, theme, is_json),
         .form_data => |list| {
             var row: u16 = start_row;
@@ -312,13 +299,13 @@ fn renderBody(
                 if (row >= area.height) break;
                 const enabled = if (item.enabled) "[x]" else "[ ]";
                 const line = std.fmt.allocPrint(allocator, "{s} {s}={s}", .{ enabled, item.key, item.value }) catch return;
-                drawLine(area, buf, row, line, content_style);
+                draw.line(area, buf, row, line, content_style);
                 row += 1;
             }
         },
         .binary => |payload| {
             const line = std.fmt.allocPrint(allocator, "Binary data: {d} bytes", .{payload.len}) catch return;
-            drawLine(area, buf, start_row, line, content_style);
+            draw.line(area, buf, start_row, line, content_style);
         },
     }
 }
@@ -333,7 +320,7 @@ fn renderBodyLines(
     is_json: bool,
 ) void {
     if (payload.len == 0) {
-        drawLine(area, buf, start_row, "Empty body", theme.muted);
+        draw.line(area, buf, start_row, "Empty body", theme.muted);
         return;
     }
 
@@ -344,62 +331,11 @@ fn renderBodyLines(
         if (is_json) {
             drawJsonLine(area, buf, row, line, style, theme);
         } else {
-            drawLineClipped(area, buf, row, line, style);
+            draw.lineClipped(area, buf, row, line, style);
         }
         row += 1;
     }
 }
-
-fn drawUrlValue(
-    area: zithril.Rect,
-    buf: *zithril.Buffer,
-    row: u16,
-    url: []const u8,
-    base_style: zithril.Style,
-    var_style: zithril.Style,
-) void {
-    if (row >= area.height) return;
-    var x: u16 = area.x;
-    const y = area.y + row;
-    var remaining = url;
-
-    while (remaining.len > 0) {
-        const start = std.mem.indexOf(u8, remaining, "{{");
-        if (start == null) {
-            buf.setString(x, y, remaining, base_style);
-            break;
-        }
-        const start_idx = start.?;
-        if (start_idx > 0) {
-            buf.setString(x, y, remaining[0..start_idx], base_style);
-            x += @intCast(start_idx);
-        }
-        const after_start = remaining[start_idx + 2 ..];
-        const end = std.mem.indexOf(u8, after_start, "}}");
-        if (end == null) {
-            buf.setString(x, y, remaining[start_idx..], base_style);
-            break;
-        }
-        const end_idx = end.?;
-        const var_text = remaining[start_idx .. start_idx + 2 + end_idx + 2];
-        buf.setString(x, y, var_text, var_style);
-        x += @intCast(var_text.len);
-        remaining = after_start[end_idx + 2 ..];
-    }
-}
-
-fn drawLine(area: zithril.Rect, buf: *zithril.Buffer, row: u16, text: []const u8, style: zithril.Style) void {
-    if (row >= area.height) return;
-    buf.setString(area.x, area.y + row, text, style);
-}
-
-fn drawLineClipped(area: zithril.Rect, buf: *zithril.Buffer, row: u16, text: []const u8, style: zithril.Style) void {
-    if (row >= area.height or area.width == 0) return;
-    const limit: usize = @intCast(area.width);
-    const slice = if (text.len > limit) text[0..limit] else text;
-    drawLine(area, buf, row, slice, style);
-}
-
 
 const VisibleSlice = struct {
     slice: []const u8,
@@ -425,7 +361,7 @@ fn drawJsonLine(area: zithril.Rect, buf: *zithril.Buffer, row: u16, text: []cons
     const limit: usize = @intCast(area.width);
     const slice = if (text.len > limit) text[0..limit] else text;
     if (!renderJsonSegments(area, buf, row, slice, base_style, theme)) {
-        drawLineClipped(area, buf, row, slice, base_style);
+        draw.lineClipped(area, buf, row, slice, base_style);
     }
 }
 
@@ -541,9 +477,7 @@ fn renderBodyInput(
     theme: theme_mod.Theme,
     cursor_visible: bool,
     is_json: bool,
-    mode: app_mod.BodyEditMode,
 ) void {
-    _ = mode;
     const max_lines: usize = if (area.height > start_row) area.height - start_row else 0;
     if (max_lines == 0) return;
 
@@ -569,7 +503,7 @@ fn renderBodyInput(
             if (is_json) {
                 drawJsonLine(area, buf, row, view.slice, style, theme);
             } else {
-                drawLine(area, buf, row, view.slice, style);
+                draw.line(area, buf, row, view.slice, style);
             }
             if (cursor_visible) {
                 drawCursorAt(area, buf, row, view.cursor_pos, view.slice, style);
@@ -578,7 +512,7 @@ fn renderBodyInput(
             if (is_json) {
                 drawJsonLine(area, buf, row, line, style, theme);
             } else {
-                drawLineClipped(area, buf, row, line, style);
+                draw.lineClipped(area, buf, row, line, style);
             }
         }
         row += 1;
@@ -589,7 +523,7 @@ fn renderBodyInput(
         if (is_json) {
             drawJsonLine(area, buf, row, view.slice, style, theme);
         } else {
-            drawLine(area, buf, row, view.slice, style);
+            draw.line(area, buf, row, view.slice, style);
         }
         if (cursor_visible) {
             drawCursorAt(area, buf, row, view.cursor_pos, view.slice, style);

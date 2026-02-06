@@ -1,18 +1,16 @@
-const std = @import("std");
 const zithril = @import("zithril");
 const app_mod = @import("lazycurl_app");
 const theme_mod = @import("../theme.zig");
 const boxed = @import("lib/boxed.zig");
 
 pub fn render(
-    allocator: std.mem.Allocator,
     area: zithril.Rect,
     buf: *zithril.Buffer,
     app: *app_mod.App,
     command_preview: []const u8,
     theme: theme_mod.Theme,
 ) void {
-    const inner = boxed.begin(allocator, area, buf, "Command Preview", "[Copy]", theme.border, theme.title, theme.accent);
+    const inner = boxed.begin(area, buf, "Command Preview", "[Copy]", theme.border, theme.title, theme.accent);
     app.ui.command_copy_rect = copyRect(area, "[Copy]");
     drawWrapped(inner, buf, 0, command_preview, theme.text);
 }

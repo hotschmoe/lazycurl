@@ -3,9 +3,9 @@ const zithril = @import("zithril");
 const app_mod = @import("lazycurl_app");
 const theme_mod = @import("../theme.zig");
 const boxed = @import("lib/boxed.zig");
+const draw = @import("lib/draw.zig");
 
 pub fn render(
-    allocator: std.mem.Allocator,
     area: zithril.Rect,
     buf: *zithril.Buffer,
     app: *app_mod.App,
@@ -43,7 +43,6 @@ pub fn render(
         right_count += 1;
     }
     const inner = boxed.beginWithBottomLabelRightLabels(
-        allocator,
         area,
         buf,
         "Output",
@@ -61,23 +60,11 @@ pub fn render(
     else
         null;
 
-    const body_start: u16 = 0;
-    const body_height: u16 = inner.height;
     const total_lines = countLines(stdout_text);
-    const content_width: u16 = inner.width;
-    app.updateOutputMetrics(total_lines, body_height);
-    if (body_height > 0 and content_width > 0) {
-
-        _ = drawOutputBody(
-            inner,
-            buf,
-            body_start,
-            body_height,
-            stdout_text,
-            app.ui.output_scroll,
-            theme,
-            content_width,
-        );
+    app.updateOutputMetrics(total_lines, inner.height);
+    if (inner.height > 0 and inner.width > 0) {
+        var skip = app.ui.output_scroll;
+        _ = drawSection(inner, buf, 0, inner.height, null, theme.muted, stdout_text, theme.text, &skip);
     }
 }
 
@@ -270,24 +257,6 @@ fn countLines(text: []const u8) usize {
     return count;
 }
 
-fn drawOutputBody(
-    area: zithril.Rect,
-    buf: *zithril.Buffer,
-    start_row: u16,
-    height: u16,
-    stdout_text: []const u8,
-    scroll: usize,
-    theme: theme_mod.Theme,
-    content_width: u16,
-) u16 {
-    var row = start_row;
-    var skip = scroll;
-    const max_row = start_row + height;
-
-    row = drawSection(area, buf, row, max_row, null, theme.muted, stdout_text, theme.text, &skip, content_width);
-    return row;
-}
-
 fn drawSection(
     area: zithril.Rect,
     buf: *zithril.Buffer,
@@ -298,14 +267,13 @@ fn drawSection(
     text: []const u8,
     text_style: zithril.Style,
     skip: *usize,
-    content_width: u16,
 ) u16 {
     var row = start_row;
     if (row >= max_row) return row;
 
     if (label) |actual| {
         if (skip.* == 0) {
-            drawLineClipped(area, buf, row, actual, label_style, content_width);
+            draw.lineClipped(area, buf, row, actual, label_style);
             row += 1;
         } else {
             skip.* -= 1;
@@ -321,20 +289,8 @@ fn drawSection(
             skip.* -= 1;
             continue;
         }
-        drawLineClipped(area, buf, row, line, text_style, content_width);
+        draw.lineClipped(area, buf, row, line, text_style);
         row += 1;
     }
     return row;
-}
-
-fn drawLine(area: zithril.Rect, buf: *zithril.Buffer, row: u16, text: []const u8, style: zithril.Style) void {
-    if (row >= area.height) return;
-    buf.setString(area.x, area.y + row, text, style);
-}
-
-fn drawLineClipped(area: zithril.Rect, buf: *zithril.Buffer, row: u16, text: []const u8, style: zithril.Style, max_width: u16) void {
-    if (max_width == 0) return;
-    const limit: usize = @intCast(max_width);
-    const slice = if (text.len > limit) text[0..limit] else text;
-    drawLine(area, buf, row, slice, style);
 }

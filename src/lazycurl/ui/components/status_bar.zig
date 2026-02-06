@@ -3,6 +3,7 @@ const zithril = @import("zithril");
 const app_mod = @import("lazycurl_app");
 const theme_mod = @import("../theme.zig");
 const boxed = @import("lib/boxed.zig");
+const draw = @import("lib/draw.zig");
 
 pub fn render(
     allocator: std.mem.Allocator,
@@ -13,9 +14,9 @@ pub fn render(
 ) void {
     const state = stateLabel(app.state);
     const tab = tabLabel(app.ui.active_tab);
-    const inner = boxed.begin(allocator, area, buf, "Status", "", theme.border, theme.title, theme.muted);
+    const inner = boxed.begin(area, buf, "Status", "", theme.border, theme.title, theme.muted);
     const line_state = std.fmt.allocPrint(allocator, "State: {s} | Tab: {s}", .{ state, tab }) catch return;
-    drawLine(inner, buf, 0, line_state, theme.text);
+    draw.line(inner, buf, 0, line_state, theme.text);
 
     const edit_value = editLabel(app);
     var edit_style = theme.text;
@@ -23,7 +24,7 @@ pub fn render(
         edit_style = edit_style.bold();
     }
     const line_edit = std.fmt.allocPrint(allocator, "Edit: {s}", .{edit_value}) catch return;
-    drawLine(inner, buf, 1, line_edit, edit_style);
+    draw.line(inner, buf, 1, line_edit, edit_style);
 
     if (baseAvailable(app)) {
         const right = buildBaseShortcutRows(allocator, inner.width);
@@ -33,11 +34,6 @@ pub fn render(
         };
         drawRightLines(inner, buf, right.lines[0..right.len], &left_lens, theme.muted);
     }
-}
-
-fn drawLine(area: zithril.Rect, buf: *zithril.Buffer, row: u16, text: []const u8, style: zithril.Style) void {
-    if (row >= area.height) return;
-    buf.setString(area.x, area.y + row, text, style);
 }
 
 fn drawRightLines(

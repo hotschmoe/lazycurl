@@ -122,16 +122,8 @@ fn toKeyInput(key: zithril.Key) ?app_mod.KeyInput {
         .char => |c| blk: {
             if (c > 0x7f) return null;
             const byte: u8 = @intCast(c);
-            if (key.modifiers.ctrl) {
-                if (std.ascii.isPrint(byte)) {
-                    break :blk .{ .char = byte };
-                }
-                return null;
-            }
-            if (std.ascii.isPrint(byte)) {
-                break :blk .{ .char = byte };
-            }
-            return null;
+            if (!std.ascii.isPrint(byte)) return null;
+            break :blk .{ .char = byte };
         },
         .enter => .enter,
         .escape => .escape,

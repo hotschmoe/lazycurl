@@ -117,19 +117,18 @@ pub fn render(
         components.url_container.render(allocator, url_area, buf, app, theme);
     }
 
-
     const command_preview = try app.buildCommandPreview(allocator);
     app.ui.command_copy_rect = null;
 
     const command_w: u16 = if (width > left_w) width - left_w else 0;
     if (command_w > 0 and command_display_h > 0) {
         const command_area = zithril.Rect.init(area.x + left_w, area.y + status_h + main_h, command_w, command_display_h);
-        components.command_display.render(allocator, command_area, buf, app, command_preview, theme);
+        components.command_display.render(command_area, buf, app, command_preview, theme);
     }
 
     if (command_w > 0 and output_h > 0) {
         const output_area = zithril.Rect.init(area.x + left_w, area.y + status_h + main_h + command_display_h, command_w, output_h);
-        components.output_panel.render(allocator, output_area, buf, app, runtime, theme);
+        components.output_panel.render(output_area, buf, app, runtime, theme);
     } else {
         app.ui.output_rect = null;
         app.ui.output_copy_rect = null;
