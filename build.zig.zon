@@ -33,8 +33,8 @@
     // internet connectivity.
     .dependencies = .{
         .zithril = .{
-            .url = "git+https://github.com/hotschmoe/zithril#777d383ad37faa5339f664168c662c1d3087434d",
-            .hash = "zithril-0.11.1-2-p2iGE-DgAU6PR7iMYLjqPbsFSLXfZ56vedU78e4MIM",
+            .url = "git+https://github.com/hotschmoe/zithril#84796c57f1ae3e0fadc2960ae13a7056d34a1831",
+            .hash = "zithril-0.18.1-2-p2iDdREADaEmZ8adwZp8sIPLNLa2B7E8AZpt7i5Hr5",
         },
     },
     .paths = .{
